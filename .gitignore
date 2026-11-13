@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.DS_Store
+# Testy nad soubory, které jsou jen na tomto počítači
+*.local.test.ts

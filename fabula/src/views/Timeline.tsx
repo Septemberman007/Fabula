@@ -1,0 +1,464 @@
+import { MouseEvent, PointerEvent, ReactNode, memo, useEffect, useMemo, useRef } from 'react';
+import { CharRole, Character, Group, ID, ROLE_LABEL, TAG_MODE_LABEL, Tag, beatName, groupBeats, tagCategories } from '../model';
+import { hasText } from '../text';
+import { ColorBy, State, actions, ui } from '../store';
+import { beatPages, detectedCharacters } from '../text';
+import { derivedTension, heat, heatColor, tagTension } from '../tension';
+import { COLOR_BY_LABEL, beatColor } from '../colors';
+
+const W = 84;
+const BW = 22;
+const PAGE_W = 110;
+const HEAD = 34;
+const CURVE = 150;
+const ROW = 30;
+const BEAT_ROW = 40;
+const TAG_ROW = 58;
+const HEAT = 26;
+const SECTION = 24;
+const PAD = 14;
+const ZOOMS = [0.35, 0.5, 0.7, 1, 1.4, 2, 2.8];
+
+/** Nejbližší krok přiblížení v daném směru. */
+const zoomStep = (zoom: number, dir: 1 | -1) => {
+  const i = ZOOMS.reduce((best, z, k) => (Math.abs(z - zoom) < Math.abs(ZOOMS[best] - zoom) ? k : best), 0);
+  return ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i + dir))];
+};
+
+interface Row {
+  key: string;
+  h: number;
+  label: ReactNode;
+  content: ReactNode;
+  /** Typ řádku: určuje vzhled popisku i obsahu. */
+  kind?: 'head' | 'section';
+}
+
+const sceneLabel = (text: string) => text.replace(/^(INT|EXT)[^\s]*\s*/i, '').replace(/\s[–-]\s\S+$/, '');
+
+export const Timeline = memo(function Timeline({ s, matches }: { s: State; matches: Set<ID> | null }) {
+  const p = s.project;
+  const scroller = useRef<HTMLDivElement>(null);
+  const { xs, ws, width } = useMemo(() => {
+    const xs: Record<ID, number> = {};
+    const ws: Record<ID, number> = {};
+    let x = 0;
+    for (const id of p.order) {
+      xs[id] = x;
+      ws[id] = p.beats[id] ? Math.round((s.byLength ? Math.max(48, beatPages(p.beats[id]) * PAGE_W) : W) * s.tlZoom) : BW;
+      x += ws[id];
+    }
+    return { xs, ws, width: x };
+  }, [p, s.byLength, s.tlZoom]);
+
+  const beats = p.order.filter((id) => p.beats[id]);
+  const breaks = p.order.filter((id) => p.breaks[id]);
+  const detected = useMemo(() => new Map(beats.map((id) => [id, detectedCharacters(p, p.beats[id])])), [p]);
+  const derived = useMemo(() => derivedTension(p), [p]);
+  const heatMap = useMemo(() => heat(p), [p]);
+  const cx = (id: ID) => xs[id] + ws[id] / 2;
+  const ty = (t: number) => PAD + ((10 - t) / 10) * (CURVE - 2 * PAD);
+  const ly = (v: number) => 9 + ((10 - v) / 10) * (TAG_ROW - 18);
+  const pts = beats.map((id) => `${cx(id)},${ty(p.beats[id].tension)}`);
+  const area = beats.length ? `M ${cx(beats[0])},${CURVE} L ${pts.join(' L ')} L ${cx(beats.at(-1)!)},${CURVE} Z` : '';
+
+  // Gesto roztažení na trackpadu (nebo kolečko s Ctrl či ⌘) osu přibližuje a oddaluje.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let acc = 0;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      acc += e.deltaY;
+      if (Math.abs(acc) < 40) return;
+      ui({ tlZoom: zoomStep(s.tlZoom, acc < 0 ? 1 : -1) });
+      acc = 0;
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [s.tlZoom]);
+
+  // Společný kurzor: vybraný beat posuneme do viditelné části osy.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || !s.selected || xs[s.selected] === undefined) return;
+    const x = xs[s.selected];
+    const w = ws[s.selected];
+    if (x < el.scrollLeft || x + w > el.scrollLeft + el.clientWidth) el.scrollTo({ left: Math.max(0, x + w / 2 - el.clientWidth / 2), behavior: 'smooth' });
+  }, [s.selected]);
+
+  const dragTension = (id: ID) => (e: PointerEvent<SVGCircleElement>) => {
+    if (!(e.buttons & 1)) return;
+    const svg = e.currentTarget.ownerSVGElement!.getBoundingClientRect();
+    const t = Math.round(10 - ((e.clientY - svg.top - PAD) / (CURVE - 2 * PAD)) * 10);
+    const tension = Math.max(0, Math.min(10, t));
+    if (tension !== p.beats[id].tension) actions.updateBeat(id, { tension }, 'tension');
+  };
+
+  /** Bod motivu: tažením se mění úroveň, pouhým kliknutím se výskyt odebere. */
+  const tagDrag = useRef<{ y: number; moved: boolean } | null>(null);
+  const tagDot = (beat: ID, tag: ID) => ({
+    onPointerDown: (e: PointerEvent<SVGCircleElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      tagDrag.current = { y: e.clientY, moved: false };
+    },
+    onPointerMove: (e: PointerEvent<SVGCircleElement>) => {
+      const d = tagDrag.current;
+      if (!d || !(e.buttons & 1)) return;
+      if (Math.abs(e.clientY - d.y) > 3) d.moved = true;
+      if (!d.moved) return;
+      const svg = e.currentTarget.ownerSVGElement!.getBoundingClientRect();
+      const v = Math.max(0, Math.min(10, Math.round(10 - ((e.clientY - svg.top - 9) / (TAG_ROW - 18)) * 10)));
+      if (v !== (p.beats[beat].tagLevels[tag] ?? 5)) actions.setTagLevel(beat, tag, v, 'taglevel');
+    },
+    onPointerUp: () => {
+      if (tagDrag.current && !tagDrag.current.moved) actions.toggleTag(beat, tag);
+      tagDrag.current = null;
+    },
+  });
+
+  const sel = (id: ID) => ui({ selected: id, multi: [], tab: 'detail' });
+  /** Beat, do jehož sloupce se kliklo (řádek má jedinou klikací vrstvu přes celou šířku). */
+  const beatAt = (e: MouseEvent<HTMLElement>) => {
+    const x = e.nativeEvent.offsetX;
+    return beats.find((id) => x >= xs[id] && x < xs[id] + ws[id]);
+  };
+  const hit = (title: string, onBeat: (id: ID) => void) => (
+    <div
+      className="tl-hit"
+      title={title}
+      onClick={(e) => {
+        const id = beatAt(e);
+        if (id) onBeat(id);
+      }}
+    />
+  );
+  const isOpen = (key: string) => !s.collapsed.includes(key);
+  const toggle = (key: string) => ui({ collapsed: isOpen(key) ? [...s.collapsed, key] : s.collapsed.filter((k) => k !== key) });
+  const heatStops = beats.map((id) => `${heatColor(heatMap.get(id) ?? 0)} ${Math.round(cx(id))}px`);
+  let n = 0;
+
+  const section = (key: string, title: string, count: number): Row => ({
+    key,
+    h: SECTION,
+    kind: 'section',
+    label: (
+      <button onClick={() => toggle(key)} aria-expanded={isOpen(key)} title={isOpen(key) ? 'Sbalit' : 'Rozbalit'}>
+        {isOpen(key) ? '▾' : '▸'} {title} <small>{count}</small>
+      </button>
+    ),
+    content: null,
+  });
+
+  /** Motiv bez úrovní (mini-zápletka, téma): rovná nit s výskyty. */
+  const threadRow = (t: Tag): Row => {
+    const used = beats.filter((id) => p.beats[id].tagIds.includes(t.id));
+    return {
+      key: t.id,
+      h: ROW,
+      label: (
+        <>
+          <i className="tag-dot" style={{ borderColor: t.color }} />
+          <span className="tl-name">{t.name || 'Bez názvu'}</span>
+        </>
+      ),
+      content: (
+        <>
+          {used.length > 1 && <span className="tl-thread" style={{ left: cx(used[0]), width: cx(used.at(-1)!) - cx(used[0]), background: t.color }} />}
+          {hit(`Kliknutím do sloupce beatu přidáš nebo odebereš „${t.name}“`, (id) => actions.toggleTag(id, t.id))}
+          {used.map((id) => (
+            <i key={id} className="tl-mark tag on" style={{ left: cx(id), color: t.color }} />
+          ))}
+        </>
+      ),
+    };
+  };
+
+  /** Motiv s úrovní: křivka, tažitelné body a záře napětí. */
+  const curveRow = (t: Tag): Row => {
+    const used = beats.filter((id) => p.beats[id].tagIds.includes(t.id));
+    const lvl = (id: ID) => p.beats[id].tagLevels[t.id] ?? 5;
+    const tens = tagTension(p, t);
+    return {
+      key: t.id,
+      h: TAG_ROW,
+      label: (
+        <>
+          <i className="tag-dot" style={{ borderColor: t.color }} />
+          <span className="tl-name">{t.name || 'Bez názvu'}</span>
+          <small>{TAG_MODE_LABEL[t.mode]}</small>
+        </>
+      ),
+      content: (
+        <>
+          {hit(`Kliknutím do sloupce beatu přidáš „${t.name}“`, (id) => !used.includes(id) && actions.toggleTag(id, t.id))}
+          <svg className="tl-tagsvg" width={width + 80} height={TAG_ROW}>
+            {used.slice(1).map((id, i) => {
+              const a = used[i];
+              const seg = { x1: cx(a), y1: ly(lvl(a)), x2: cx(id), y2: ly(lvl(id)) };
+              // Záři kreslíme po úsecích mezi sousedními beaty, aby odpovídala napětí v daném místě.
+              const span = beats.slice(beats.indexOf(a), beats.indexOf(id) + 1);
+              const at = (b: ID) => seg.y1 + ((cx(b) - seg.x1) / (seg.x2 - seg.x1)) * (seg.y2 - seg.y1);
+              return (
+                <g key={id}>
+                  {span.slice(1).map((b, j) => {
+                    const glow = tens.get(b) ?? 0;
+                    return glow > 0.05 ? (
+                      <line key={b} x1={cx(span[j])} y1={at(span[j])} x2={cx(b)} y2={at(b)} className="tl-glow" strokeWidth={4 + 16 * glow} opacity={0.25 + 0.55 * glow} />
+                    ) : null;
+                  })}
+                  <line {...seg} stroke={t.color} strokeWidth={2} />
+                </g>
+              );
+            })}
+            {used.map((id) => (
+              <circle key={id} cx={cx(id)} cy={ly(lvl(id))} r={5.5} fill={t.color} className="tl-tagdot" {...tagDot(id, t.id)}>
+                <title>
+                  {t.name} v „{beatName(p, id)}“: úroveň {lvl(id)}/10 – táhni pro změnu, klikni pro odebrání
+                </title>
+              </circle>
+            ))}
+          </svg>
+        </>
+      ),
+    };
+  };
+
+  const charRow = (c: Character): Row => ({
+    key: c.id,
+    h: ROW,
+    label: (
+      <>
+        <i style={{ background: c.color }} />
+        <span className="tl-name">{c.name || 'Bez jména'}</span>
+      </>
+    ),
+    content: (
+      <>
+        {hit(`Kliknutím do sloupce beatu přiřadíš nebo odebereš postavu ${c.name}`, (id) => actions.toggleCharacter(id, c.id))}
+        {beats.map((id) => {
+          const manual = p.beats[id].characterIds.includes(c.id);
+          if (!manual && !detected.get(id)!.has(c.id)) return null;
+          return <i key={id} className={`tl-mark ${manual ? 'on' : 'auto'}`} style={{ left: cx(id), color: c.color }} title={manual ? undefined : 'Rozpoznáno z textu'} />;
+        })}
+      </>
+    ),
+  });
+
+  const span = (g: Group) => {
+    const members = groupBeats(p, g.id);
+    if (!members.length) return null;
+    const left = Math.min(...members.map((id) => xs[id]));
+    return { g, left, width: Math.max(...members.map((id) => xs[id] + ws[id])) - left };
+  };
+  const blocks = p.groups.filter((g) => !g.parentId).map(span).filter((x) => x !== null);
+  const subgroups = p.groups.filter((g) => g.parentId).map(span).filter((x) => x !== null);
+
+  // Scéna začíná hlavičkou a trvá přes další rozepsané beaty, dokud nepřijde nová hlavička nebo prázdný beat.
+  const scenes: { first: ID; last: ID; heading: string; count: number }[] = [];
+  let open: (typeof scenes)[number] | null = null;
+  for (const id of beats) {
+    const heading = p.beats[id].paras.find((x) => x.type === 'scene' && x.text.trim())?.text;
+    if (heading) scenes.push((open = { first: id, last: id, heading, count: 1 }));
+    else if (open && hasText(p.beats[id])) {
+      open.last = id;
+      open.count++;
+    } else open = null;
+  }
+
+  const rows: Row[] = [
+    {
+      key: 'head',
+      h: HEAD,
+      kind: 'head',
+      label: (
+        <span className="tl-zoom">
+          <button onClick={() => ui({ tlZoom: zoomStep(s.tlZoom, -1) })} disabled={s.tlZoom <= ZOOMS[0]} title="Oddálit osu">
+            −
+          </button>
+          <button className="zoom-val" onClick={() => ui({ tlZoom: 1 })} title="Vrátit na 100 %">
+            {Math.round(s.tlZoom * 100)} %
+          </button>
+          <button onClick={() => ui({ tlZoom: zoomStep(s.tlZoom, 1) })} disabled={s.tlZoom >= ZOOMS[ZOOMS.length - 1]} title="Přiblížit osu">
+            +
+          </button>
+        </span>
+      ),
+      content: p.order.map((id) =>
+        p.beats[id] ? (
+          <span key={id} className="tl-num" style={{ left: xs[id], width: ws[id] }} title={p.beats[id].concurrent ? `${p.beats[id].title} – souběžně s předchozím beatem` : p.beats[id].title}>
+            {p.beats[id].concurrent && <i className="tl-conc">∥</i>}
+            {++n}
+          </span>
+        ) : (
+          <span key={id} className="tl-break-name" style={{ left: xs[id] + BW }}>
+            {p.breaks[id].title}
+          </span>
+        ),
+      ),
+    },
+    {
+      key: 'scenes',
+      h: ROW,
+      label: (
+        <>
+          Scény
+          <label className="check tl-bylen" title="Šířka beatu podle odhadované délky textu">
+            <input type="checkbox" checked={s.byLength} onChange={(e) => ui({ byLength: e.target.checked })} /> podle délky
+          </label>
+        </>
+      ),
+      content: scenes.map((sc) => (
+        <span
+          key={sc.first}
+          className="tl-scene"
+          style={{ left: xs[sc.first] + 2, width: xs[sc.last] + ws[sc.last] - xs[sc.first] - 4 }}
+          title={`${sc.heading.toLocaleUpperCase('cs')}${sc.count > 1 ? ` – ${sc.count} beaty` : ''}`}
+          onClick={() => sel(sc.first)}
+        >
+          {sceneLabel(sc.heading)}
+        </span>
+      )),
+    },
+    {
+      key: 'beats',
+      h: BEAT_ROW,
+      label: (
+        <>
+          Beaty
+          <select className="tl-colorby" value={s.colorBy} title="Podle čeho se barví beaty" onChange={(e) => ui({ colorBy: e.target.value as ColorBy })}>
+            {(Object.keys(COLOR_BY_LABEL) as ColorBy[]).map((k) => (
+              <option key={k} value={k}>
+                podle {COLOR_BY_LABEL[k]}
+              </option>
+            ))}
+          </select>
+        </>
+      ),
+      content: beats.map((id) => (
+        <span
+          key={id}
+          className="tl-beat"
+          style={{ left: xs[id] + 2, width: ws[id] - 4, background: beatColor(p, p.beats[id], s.colorBy) }}
+          title={`${beatName(p, id)}${p.beats[id].synopsis ? ' – ' + p.beats[id].synopsis : ''}`}
+          onClick={() => sel(id)}
+        >
+          {beatName(p, id)}
+        </span>
+      )),
+    },
+    {
+      key: 'tension',
+      h: CURVE,
+      label: (
+        <>
+          Napětí
+          <small>táhni body nahoru a dolů{derived && ' · čárkovaně: odvozené z motivů'}</small>
+        </>
+      ),
+      content: (
+        <svg className="tl-curve" width={width + 80} height={CURVE}>
+          {[0, 5, 10].map((t) => (
+            <line key={t} x1={0} x2={width} y1={ty(t)} y2={ty(t)} className="tl-grid" />
+          ))}
+          {area && <path d={area} className="tl-area" />}
+          {derived && beats.length > 1 && <polyline points={beats.map((id) => `${cx(id)},${ty(derived.get(id)! * 10)}`).join(' ')} className="tl-derived" />}
+          {pts.length > 1 && <polyline points={pts.join(' ')} className="tl-line" />}
+          {beats.map((id) => (
+            <circle
+              key={id}
+              cx={cx(id)}
+              cy={ty(p.beats[id].tension)}
+              r={s.selected === id ? 8 : 6}
+              className={`tl-dot${s.selected === id ? ' selected' : ''}`}
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                sel(id);
+              }}
+              onPointerMove={dragTension(id)}
+            >
+              <title>
+                {beatName(p, id)} – napětí {p.beats[id].tension}/10
+              </title>
+            </circle>
+          ))}
+        </svg>
+      ),
+    },
+    {
+      key: 'heat',
+      h: HEAT,
+      label: <span title="Ruční napětí zprůměrované s napětím z motivů">Heat mapa</span>,
+      content: beats.length > 0 && (
+        <div className="tl-heat" style={{ width, background: beats.length > 1 ? `linear-gradient(to right, ${heatStops.join(', ')})` : heatColor(heatMap.get(beats[0]) ?? 0) }} />
+      ),
+    },
+  ];
+
+  for (const [key, label, items] of [
+    ['blocks', 'Bloky', blocks],
+    ['subgroups', 'Skupiny', subgroups],
+  ] as const) {
+    if (!items.length) continue;
+    rows.push({
+      key,
+      h: ROW,
+      label,
+      content: items.map(({ g, left, width }) => (
+        <span key={g.id} className={`tl-group${key === 'blocks' ? ' solid' : ''}`} style={{ left: left + 3, width: width - 6, borderColor: g.color, color: g.color }} title={g.title}>
+          {g.title}
+        </span>
+      )),
+    });
+  }
+
+  for (const cat of tagCategories(p)) {
+    const tags = p.tags.filter((t) => t.category === cat);
+    if (!tags.length) continue;
+    const key = `tag:${cat}`;
+    rows.push(section(key, cat, tags.length));
+    if (isOpen(key)) for (const t of tags) rows.push(t.mode === 'none' ? threadRow(t) : curveRow(t));
+  }
+  for (const role of Object.keys(ROLE_LABEL) as CharRole[]) {
+    const chars = p.characters.filter((c) => c.role === role);
+    if (!chars.length) continue;
+    const key = `role:${role}`;
+    rows.push(section(key, ROLE_LABEL[role], chars.length));
+    if (isOpen(key)) for (const c of chars) rows.push(charRow(c));
+  }
+
+  return (
+    <div className="timeline">
+      <div className="tl-labels">
+        {rows.map((r) => (
+          <div key={r.key} className={r.kind === 'section' ? 'tl-section tl-sec' : r.kind === 'head' ? 'tl-opts' : 'tl-label'} style={{ height: r.h }}>
+            {r.label}
+          </div>
+        ))}
+      </div>
+
+      <div className="tl-scroll" ref={scroller}>
+        <div className="tl-canvas" style={{ width: width + 80 }}>
+          {beats.map((id) => (
+            <div
+              key={id}
+              className={`tl-col${s.selected === id ? ' selected' : ''}${matches && !matches.has(id) ? ' out' : ''}`}
+              style={{ left: xs[id], width: ws[id] }}
+              onClick={() => sel(id)}
+            />
+          ))}
+          {breaks.map((id) => (
+            <div key={id} className="tl-break" style={{ left: xs[id] + BW / 2 }} title={p.breaks[id].title} />
+          ))}
+          {rows.map((r) => (
+            <div key={r.key} className={r.kind === 'section' ? 'tl-row tl-section' : r.kind === 'head' ? 'tl-row tl-head' : 'tl-row'} style={{ height: r.h }}>
+              {r.content}
+            </div>
+          ))}
+          {beats.length === 0 && <p className="muted tl-empty">Časová osa se naplní, jakmile přidáš beaty.</p>}
+        </div>
+      </div>
+    </div>
+  );
+});
