@@ -5,6 +5,7 @@ import { COLOR_BY_LABEL, beatColor } from '../colors';
 import { Issue, brokenLinks } from '../evaluate';
 import { beatCharacters } from '../text';
 import { BeatEditor } from '../BeatEditor';
+import { ZoomSlider, clampZoom } from '../ZoomSlider';
 
 const COL = 208;
 const BRK = 46;
@@ -19,7 +20,8 @@ const CARD_DY = 52;
 /** Rozestup karet, které se ve stejné linii dějí souběžně. */
 const STACK = CARD_H + 10;
 const LANE_PAD = 26;
-const ZOOMS = [0.5, 0.65, 0.8, 1, 1.25];
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 1.5;
 
 interface Col {
   x: number;
@@ -331,10 +333,8 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
     .filter((x) => x !== null)
     .sort((a, b) => Number(b.outer) - Number(a.outer));
 
-  const zoomStep = (dir: 1 | -1) => {
-    const i = ZOOMS.indexOf(zoom);
-    ui({ zoom: ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (i < 0 ? 3 : i) + dir))] });
-  };
+  /** Gesto přibližuje po desetině současné hodnoty, aby bylo stejně citlivé u malého i velkého přiblížení. */
+  const zoomStep = (dir: 1 | -1) => ui({ zoom: clampZoom(zoom * (dir > 0 ? 1.1 : 1 / 1.1), ZOOM_MIN, ZOOM_MAX) });
 
   // Gesto roztažení na trackpadu (nebo kolečko s Ctrl či ⌘) tabuli přibližuje a oddaluje.
   useEffect(() => {
@@ -414,13 +414,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
             ))}
           </select>
           <button onClick={addNote}>+ Poznámka</button>
-          <button onClick={() => zoomStep(-1)} disabled={zoom <= ZOOMS[0]} title="Oddálit">
-            −
-          </button>
-          <span className="zoom-val">{Math.round(zoom * 100)} %</span>
-          <button onClick={() => zoomStep(1)} disabled={zoom >= ZOOMS[ZOOMS.length - 1]} title="Přiblížit">
-            +
-          </button>
+          <ZoomSlider value={zoom} min={ZOOM_MIN} max={ZOOM_MAX} what="tabuli" onChange={(z) => ui({ zoom: z })} />
           {!noSplit && (
           <label className="check">
             <input type="checkbox" checked={s.split} onChange={(e) => ui({ split: e.target.checked })} /> Text scény pod tabulí

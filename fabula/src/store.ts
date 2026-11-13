@@ -41,6 +41,8 @@ export interface State {
   zoom: number;
   /** Časová osa: vodorovné přiblížení. */
   tlZoom: number;
+  /** Scénář: velikost stránky v samostatném pohledu. */
+  scriptZoom: number;
   split: boolean;
   /** Časová osa: šířka beatu podle délky textu. */
   byLength: boolean;
@@ -111,6 +113,7 @@ let state: State = {
   tab: 'detail',
   zoom: 1,
   tlZoom: 1,
+  scriptZoom: 1,
   split: false,
   byLength: false,
   past: [],
@@ -164,7 +167,7 @@ export function useSel<T>(select: (s: State) => T): T {
     () => select(state),
   );
 }
-export const ui = (patch: Partial<Pick<State, 'selected' | 'multi' | 'filter' | 'filterOpen' | 'inspector' | 'colorBy' | 'highlight' | 'collapsed' | 'research' | 'linkFrom' | 'view' | 'tab' | 'zoom' | 'tlZoom' | 'split' | 'byLength'>>) =>
+export const ui = (patch: Partial<Pick<State, 'selected' | 'multi' | 'filter' | 'filterOpen' | 'inspector' | 'colorBy' | 'highlight' | 'collapsed' | 'research' | 'linkFrom' | 'view' | 'tab' | 'zoom' | 'tlZoom' | 'scriptZoom' | 'split' | 'byLength'>>) =>
   emit({ ...state, ...patch });
 
 let lastKey = '';

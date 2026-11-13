@@ -2,6 +2,7 @@ import { TextareaHTMLAttributes, memo, useCallback, useEffect, useLayoutEffect, 
 import { Beat, ID, Tag } from '../model';
 import { State, actions, getState, ui } from '../store';
 import { BeatEditor } from '../BeatEditor';
+import { ZoomSlider } from '../ZoomSlider';
 import { LINES_PER_PAGE, beatLines, beatWords, hasText } from '../text';
 
 const AUTO_SIZE = typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content');
@@ -87,7 +88,7 @@ function spokenLines(paras: { type: string; text: string }[]): string[] {
     .map((x) => (x.type === 'character' ? `${x.text.replace(/\(.*?\)/g, '').trim()}:` : x.text.trim()));
 }
 
-export function Script({ s, matches }: { s: State; matches: Set<ID> | null }) {
+export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | null; zoomable?: boolean }) {
   const p = s.project;
   const [reading, setReading] = useState(false);
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -156,8 +157,9 @@ export function Script({ s, matches }: { s: State; matches: Set<ID> | null }) {
             {reading ? 'Zastavit čtení' : 'Číst nahlas'}
           </button>
         )}
+        {zoomable && <ZoomSlider value={s.scriptZoom} min={0.6} max={2} what="scénář" onChange={(z) => ui({ scriptZoom: z })} />}
       </div>
-      <div className="page">
+      <div className="page" style={zoomable && s.scriptZoom !== 1 ? { zoom: s.scriptZoom } : undefined}>
         <div className="print-title">
           <h1>{p.title}</h1>
           {p.titlePage.author.trim() && (

@@ -480,7 +480,7 @@ export function App() {
       <main className="main">
         <div className="view">
           {s.view === 'board' && <Board s={s} issues={issues} matches={matches} />}
-          {s.view === 'script' && <Script s={s} matches={matches} />}
+          {s.view === 'script' && <Script s={s} matches={matches} zoomable />}
           {s.view === 'timeline' && <Timeline s={s} matches={matches} />}
           {s.view === 'all' && (
             <div className="all">

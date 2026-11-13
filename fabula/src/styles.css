@@ -2677,3 +2677,47 @@ button.pressed {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------- Posuvník přiblížení ---------- */
+.zoom-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.zoom-slider input[type='range'] {
+  width: 110px;
+  accent-color: var(--accent);
+  margin: 0;
+}
+.zoom-slider.compact input[type='range'] {
+  width: 74px;
+}
+.zoom-slider button {
+  padding: 1px 8px;
+  font-size: 12px;
+}
+.zoom-slider .zoom-val {
+  min-width: 48px;
+  padding: 1px 2px;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.script-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.script-stats .zoom-slider {
+  margin-left: auto;
+}
+@media print {
+  .page {
+    zoom: 1 !important;
+  }
+  .zoom-slider {
+    display: none !important;
+  }
+}

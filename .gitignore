@@ -3,3 +3,5 @@ dist/
 .DS_Store
 # Testy nad soubory, které jsou jen na tomto počítači
 *.local.test.ts
+# Rozpracované příběhy si autor ukládá na vlastní disk, do repozitáře nepatří
+projekty/

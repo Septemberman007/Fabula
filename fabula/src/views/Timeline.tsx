@@ -5,6 +5,7 @@ import { ColorBy, State, actions, ui } from '../store';
 import { beatPages, detectedCharacters } from '../text';
 import { derivedTension, heat, heatColor, tagTension } from '../tension';
 import { COLOR_BY_LABEL, beatColor } from '../colors';
+import { ZoomSlider, clampZoom } from '../ZoomSlider';
 
 const W = 84;
 const BW = 22;
@@ -17,13 +18,11 @@ const TAG_ROW = 58;
 const HEAT = 26;
 const SECTION = 24;
 const PAD = 14;
-const ZOOMS = [0.35, 0.5, 0.7, 1, 1.4, 2, 2.8];
+const ZOOM_MIN = 0.15;
+const ZOOM_MAX = 3;
 
-/** Nejbližší krok přiblížení v daném směru. */
-const zoomStep = (zoom: number, dir: 1 | -1) => {
-  const i = ZOOMS.reduce((best, z, k) => (Math.abs(z - zoom) < Math.abs(ZOOMS[best] - zoom) ? k : best), 0);
-  return ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i + dir))];
-};
+/** Gesto přibližuje po desetině současné hodnoty. */
+const zoomStep = (zoom: number, dir: 1 | -1) => clampZoom(zoom * (dir > 0 ? 1.1 : 1 / 1.1), ZOOM_MIN, ZOOM_MAX);
 
 interface Row {
   key: string;
@@ -273,17 +272,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
       h: HEAD,
       kind: 'head',
       label: (
-        <span className="tl-zoom">
-          <button onClick={() => ui({ tlZoom: zoomStep(s.tlZoom, -1) })} disabled={s.tlZoom <= ZOOMS[0]} title="Oddálit osu">
-            −
-          </button>
-          <button className="zoom-val" onClick={() => ui({ tlZoom: 1 })} title="Vrátit na 100 %">
-            {Math.round(s.tlZoom * 100)} %
-          </button>
-          <button onClick={() => ui({ tlZoom: zoomStep(s.tlZoom, 1) })} disabled={s.tlZoom >= ZOOMS[ZOOMS.length - 1]} title="Přiblížit osu">
-            +
-          </button>
-        </span>
+        <ZoomSlider compact value={s.tlZoom} min={ZOOM_MIN} max={ZOOM_MAX} what="časovou osu" onChange={(z) => ui({ tlZoom: z })} />
       ),
       content: p.order.map((id) =>
         p.beats[id] ? (
