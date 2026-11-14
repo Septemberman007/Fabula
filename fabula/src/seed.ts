@@ -20,6 +20,7 @@ export function emptyProject(): Project {
     titlePage: { author: '', basedOn: '', draft: '', contact: '' },
     revisions: [],
     targetPages: 110,
+    paper: 'a4',
   };
 }
 
@@ -54,6 +55,7 @@ export function seed(): Project {
     titlePage: { author: '', basedOn: '', draft: '', contact: '' },
     revisions: [],
     targetPages: 110,
+    paper: 'a4',
   };
 
   const beat = (title: string, synopsis: string, laneId: ID, chars: ID[], tension: number): ID => {

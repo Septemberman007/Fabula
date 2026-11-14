@@ -1,9 +1,12 @@
 import { TextareaHTMLAttributes, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Beat, ID, Tag } from '../model';
 import { State, actions, getState, ui } from '../store';
 import { BeatEditor } from '../BeatEditor';
 import { ZoomSlider } from '../ZoomSlider';
-import { LINES_PER_PAGE, beatLines, beatWords, hasText } from '../text';
+import { beatWords, hasText } from '../text';
+import { PAPERS, Pagination, pageRange, paginate } from '../paginate';
+import { Pages } from './Pages';
 
 const AUTO_SIZE = typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content');
 
@@ -27,11 +30,15 @@ interface BeatProps {
   folded: boolean;
   tags: Tag[];
   sceneBase: number;
+  /** Strany, na kterých beat leží („12“ nebo „12–13“). */
+  pages: string;
+  /** Zlomy stran v odstavcích beatu. */
+  marks: string;
   onFold: (id: ID) => void;
 }
 
 /** Jeden beat ve scénáři. Zapamatovaný, aby se při psaní překreslil jen ten, který se mění. */
-const ScriptBeat = memo(function ScriptBeat({ beat: b, n, laneColor, selected, folded, tags, sceneBase, onFold }: BeatProps) {
+const ScriptBeat = memo(function ScriptBeat({ beat: b, n, laneColor, selected, folded, tags, sceneBase, pages, marks, onFold }: BeatProps) {
   const id = b.id;
   const pick = () => getState().selected !== id && ui({ selected: id, tab: 'detail' });
   return (
@@ -55,6 +62,7 @@ const ScriptBeat = memo(function ScriptBeat({ beat: b, n, laneColor, selected, f
             title={b.off ? 'Vyřazeno ze scénáře' : undefined}
             onChange={(e) => actions.updateBeat(id, { title: e.target.value }, 'title')}
           />
+          {pages && <span className="script-pages" title="Strana scénáře">str. {pages}</span>}
         </div>
         {b.tagIds.length > 0 && (
           <div className="script-tags">
@@ -76,10 +84,22 @@ const ScriptBeat = memo(function ScriptBeat({ beat: b, n, laneColor, selected, f
           />
         )}
       </div>
-      {!folded && <BeatEditor beat={b} sceneBase={sceneBase} />}
+      {!folded && <BeatEditor beat={b} sceneBase={sceneBase} marks={marks} />}
     </section>
   );
 });
+
+/** Zlomy stran v odstavcích jednoho beatu jako text (viz BeatEditor). */
+function beatMarks(pg: Pagination, b: Beat): string {
+  const out: string[] = [];
+  for (const para of b.paras) {
+    const at = pg.para.get(para.id);
+    if (!at) continue;
+    if (at.breakBefore) out.push(`${para.id}>${at.page}`);
+    for (const x of at.splits) out.push(`${para.id}@${x.after}>${x.page}`);
+  }
+  return out.join('|');
+}
 
 /** Text beatu tak, jak se má přečíst: jméno mluvčího se ohlásí, poznámky v závorce se vynechají. */
 function spokenLines(paras: { type: string; text: string }[]): string[] {
@@ -91,6 +111,20 @@ function spokenLines(paras: { type: string; text: string }[]): string[] {
 export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | null; zoomable?: boolean }) {
   const p = s.project;
   const [reading, setReading] = useState(false);
+  // Při tisku se místo editoru vykreslí hotové strany, aby tisk přesně odpovídal stránkování.
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    if (!zoomable) return;
+    const on = () => flushSync(() => setPrinting(true));
+    const off = () => setPrinting(false);
+    window.addEventListener('beforeprint', on);
+    window.addEventListener('afterprint', off);
+    return () => {
+      window.removeEventListener('beforeprint', on);
+      window.removeEventListener('afterprint', off);
+    };
+  }, [zoomable]);
+  const paged = !!zoomable && s.paged;
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
@@ -143,38 +177,44 @@ export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | 
   const sceneCount = p.order.reduce((k, id) => k + (p.beats[id]?.paras.filter((x) => x.type === 'scene' && x.text.trim()).length ?? 0), 0);
   let sceneBase = 0;
   const words = beats.reduce((n, b) => n + beatWords(b), 0);
-  const lines = beats.reduce((n, b) => n + beatLines(b), 0);
-  const pages = lines ? Math.max(1, Math.round(lines / LINES_PER_PAGE)) : 0;
+  const pg = paginate(p);
+  const pages = pg.pages.length;
   let n = 0;
 
   return (
     <div className="script">
       <div className="script-stats">
-        {beats.filter(hasText).length} z {beats.length} beatů rozepsáno · {sceneCount} scén · {words} slov · přibližně {pages} str. (≈ {pages} min)
+        {beats.filter(hasText).length} z {beats.length} beatů rozepsáno · {sceneCount} scén · {words} slov · {pages} str. (≈ {pages} min)
         {hiddenCount > 0 && <b> · {hiddenCount} beatů skryto filtrem</b>}
         {canSpeak && (
           <button className="read-btn" onClick={reading ? stop : read} title="Přečte scénář nahlas od vybraného beatu">
             {reading ? 'Zastavit čtení' : 'Číst nahlas'}
           </button>
         )}
+        {zoomable && (
+          <span className="seg">
+            <button className={paged ? '' : 'on'} onClick={() => ui({ paged: false })} title="Psaní po beatech se značkami zlomů stran">
+              Psaní
+            </button>
+            <button className={paged ? 'on' : ''} onClick={() => ui({ paged: true })} title="Náhled scénáře po stranách, jak se vytiskne">
+              Strany
+            </button>
+          </span>
+        )}
+        {zoomable && (
+          <select className="paper-select" value={pg.paper} title="Formát papíru pro stránkování a tisk" onChange={(e) => actions.setPaper(e.target.value as 'a4' | 'letter')}>
+            {(['a4', 'letter'] as const).map((k) => (
+              <option key={k} value={k}>
+                {PAPERS[k].label}
+              </option>
+            ))}
+          </select>
+        )}
         {zoomable && <ZoomSlider value={s.scriptZoom} min={0.6} max={2} what="scénář" onChange={(z) => ui({ scriptZoom: z })} />}
       </div>
+      {(paged || printing) && <Pages p={p} pg={pg} zoom={s.scriptZoom} selected={s.selected} />}
+      {!paged && (
       <div className="page" style={zoomable && s.scriptZoom !== 1 ? { zoom: s.scriptZoom } : undefined}>
-        <div className="print-title">
-          <h1>{p.title}</h1>
-          {p.titlePage.author.trim() && (
-            <p>
-              Napsal
-              <br />
-              {p.titlePage.author}
-            </p>
-          )}
-          {p.titlePage.basedOn.trim() && <p>{p.titlePage.basedOn}</p>}
-          <footer>
-            {p.titlePage.draft}
-            {p.titlePage.contact.trim() && <pre>{p.titlePage.contact}</pre>}
-          </footer>
-        </div>
         {p.order.map((id) => {
           const brk = p.breaks[id];
           if (brk) {
@@ -199,12 +239,15 @@ export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | 
               folded={folded.has(id)}
               tags={p.tags}
               sceneBase={base}
+              pages={pageRange(pg.beat.get(id))}
+              marks={beatMarks(pg, b)}
               onFold={fold}
             />
           );
         })}
         {p.order.length === 0 && <p className="muted">Příběh zatím nemá žádné beaty. Přidej první tlačítkem „+ Beat“.</p>}
       </div>
+      )}
     </div>
   );
 }

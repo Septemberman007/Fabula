@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { beatCharacters, detectedCharacters, eighths, parseFountain, toFountain, unknownSpeakers } from '../src/text';
+import { beatCharacters, detectedCharacters, parseFountain, toFountain, unknownSpeakers } from '../src/text';
+import { eighths } from '../src/paginate';
 import { para, project } from './fixtures';
 
 describe('Fountain', () => {
@@ -53,5 +54,5 @@ describe('délka v osminách strany', () => {
     [3, '1/8'],
     [55, '1'],
     [76, '1 3/8'],
-  ])('%i řádků → %s', (lines, text) => expect(eighths(lines)).toBe(text));
+  ])('%i řádků → %s', (lines, text) => expect(eighths(lines, 55)).toBe(text));
 });

@@ -25,6 +25,7 @@ export function project(): Project & { add: (title: string, patch?: Partial<Beat
     titlePage: { author: '', basedOn: '', draft: '', contact: '' },
     revisions: [],
     targetPages: 110,
+    paper: 'a4',
   };
   return Object.assign(p, {
     add(title: string, patch: Partial<Beat> = {}) {

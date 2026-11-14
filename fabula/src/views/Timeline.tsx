@@ -2,7 +2,8 @@ import { MouseEvent, PointerEvent, ReactNode, memo, useEffect, useMemo, useRef }
 import { CharRole, Character, Group, ID, ROLE_LABEL, TAG_MODE_LABEL, Tag, beatName, groupBeats, tagCategories } from '../model';
 import { hasText } from '../text';
 import { ColorBy, State, actions, setZoom, toggleZoomLink, ui } from '../store';
-import { beatPages, detectedCharacters } from '../text';
+import { detectedCharacters } from '../text';
+import { beatPages } from '../paginate';
 import { derivedTension, heat, heatColor, tagTension } from '../tension';
 import { COLOR_BY_LABEL, beatColor } from '../colors';
 import { ZoomSlider } from '../ZoomSlider';

@@ -42,13 +42,17 @@ interface RowProps {
   sceneNo?: number;
   mark?: string;
   rev?: Revision;
+  /** Číslo strany, která tímto odstavcem začíná. */
+  pageBefore?: number;
+  /** Zlomy strany uvnitř odstavce ve tvaru „řádek:strana“, oddělené čárkou. */
+  splits?: string;
 }
 
 /**
  * Jeden odstavec scénáře. Je zapamatovaný (memo) a aktuální data si bere ze stavu až při akci,
  * takže psaní v jednom odstavci nepřekresluje ostatní.
  */
-const ParaRow = memo(function ParaRow({ beatId, para, index, count, sceneNo, mark, rev }: RowProps) {
+const ParaRow = memo(function ParaRow({ beatId, para, index, count, sceneNo, mark, rev, pageBefore, splits }: RowProps) {
   const [noteOpen, setNoteOpen] = useState(!!para.note);
   const ref = useRef<HTMLTextAreaElement>(null);
   const [focused, setFocused] = useState(false);
@@ -122,7 +126,7 @@ const ParaRow = memo(function ParaRow({ beatId, para, index, count, sceneNo, mar
   };
 
   return (
-    <div className={`para para-${para.type}${focused ? ' focused' : ''}`}>
+    <div className={`para para-${para.type}${focused ? ' focused' : ''}`} data-page={pageBefore}>
       <span className="para-gutter">
         {sceneNo && <b className="scene-no">{sceneNo}</b>}
         <button
@@ -162,6 +166,10 @@ const ParaRow = memo(function ParaRow({ beatId, para, index, count, sceneNo, mar
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
         />
+        {splits?.split(',').map((x) => {
+          const [after, page] = x.split(':');
+          return <i key={x} className="page-split" data-page={page} style={{ top: `calc(${after} * var(--lh))` }} />;
+        })}
         {rev && (
           <b className="rev-mark" style={{ color: rev.color }} title={`Změněno v revizi „${rev.name}“`}>
             *
@@ -206,13 +214,22 @@ function focusPara(from: HTMLTextAreaElement, dir: 1 | -1) {
  * Editor textu jednoho beatu. `sceneBase` je počet scén před tímto beatem (pro číslování hlaviček).
  * Překreslí se jen při změně svého beatu, postav, revizí nebo zvýraznění.
  */
-export const BeatEditor = memo(function BeatEditor({ beat, sceneBase }: { beat: Beat; sceneBase: number }) {
+export const BeatEditor = memo(function BeatEditor({ beat, sceneBase, marks }: { beat: Beat; sceneBase: number; marks?: string }) {
   const characters = useSel((s) => s.project.characters);
   const revisions = useSel((s) => s.project.revisions);
   const highlight = useSel((s) => s.highlight);
   // Barva zvýraznění: replika patří postavě z nejbližší hlavičky mluvčího nad ní.
   let who: ID | undefined;
   let scene = sceneBase;
+  // Zlomy stran přicházejí jako text „odstavec>strana“ nebo „odstavec@řádek>strana“, aby se beat překreslil jen při skutečné změně.
+  const before = new Map<ID, number>();
+  const inside = new Map<ID, string[]>();
+  for (const m of marks ? marks.split('|') : []) {
+    const [key, page] = m.split('>');
+    const [pid, after] = key.split('@');
+    if (after === undefined) before.set(pid, +page);
+    else inside.set(pid, [...(inside.get(pid) ?? []), `${after}:${page}`]);
+  }
   const rows = beat.paras.map((para) => {
     if (para.type === 'character') who = highlight.length ? speakerCharacter({ characters } as Project, para.text) : undefined;
     else if (para.type !== 'dialogue' && para.type !== 'paren') who = undefined;
@@ -222,6 +239,8 @@ export const BeatEditor = memo(function BeatEditor({ beat, sceneBase }: { beat: 
       mark: who && highlight.includes(who) ? characters.find((c) => c.id === who)?.color : undefined,
       rev,
       sceneNo: para.type === 'scene' && para.text.trim() ? ++scene : undefined,
+      pageBefore: before.get(para.id),
+      splits: inside.get(para.id)?.join(','),
     };
   });
   return (

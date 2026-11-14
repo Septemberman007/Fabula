@@ -1,7 +1,8 @@
 import { BeatStatus, CharRole, ID, Link, STATUS_LABEL, TAG_CATEGORIES, TAG_MODE_LABEL, TagMode, beatName, beatNumber, groupBeats, groupLabel, tagCategories } from './model';
 import { State, Tab, actions, ui } from './store';
 import { Issue } from './evaluate';
-import { beatPages, detectedCharacters, unknownSpeakers } from './text';
+import { detectedCharacters, unknownSpeakers } from './text';
+import { eighths, pageRange, paginate } from './paginate';
 
 const SEVERITY_LABEL = { error: 'Chyba', warn: 'Varování', tip: 'Tip' } as const;
 
@@ -60,7 +61,8 @@ function Detail({ s, issues }: { s: State; issues: Issue[] }) {
   const mine = issues.filter((i) => i.beatIds.includes(id));
   const pos = (x: ID) => p.order.indexOf(x);
   const detected = detectedCharacters(p, b);
-  const pages = beatPages(b);
+  const pg = paginate(p);
+  const place = pg.beat.get(id);
   const group = p.groups.find((g) => g.id === b.groupId) ?? null;
 
   const linkRow = (l: Link, other: ID, inverted: boolean) => (
@@ -82,7 +84,12 @@ function Detail({ s, issues }: { s: State; issues: Issue[] }) {
     <>
       <div className="insp-kicker">
         Beat {beatNumber(p, id)}
-        {pages > 0.05 && <> · {pages < 1 ? `${Math.max(1, Math.round(pages * 8))}/8 str.` : `${pages.toFixed(1).replace('.', ',')} str.`}</>}
+        {place && (
+          <>
+            {' '}
+            · délka {eighths(place.lines, pg.perPage)} str. · strana {pageRange(place)}
+          </>
+        )}
       </div>
       <label>
         Název

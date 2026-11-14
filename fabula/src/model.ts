@@ -220,7 +220,11 @@ export interface Project {
   revisions: Revision[];
   /** Cílová délka scénáře ve stranách (pro mapu příběhu). */
   targetPages: number;
+  /** Formát papíru pro stránkování a tisk. */
+  paper: Paper;
 }
+
+export type Paper = 'a4' | 'letter';
 
 export const uid = (): ID => crypto.randomUUID();
 

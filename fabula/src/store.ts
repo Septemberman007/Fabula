@@ -44,6 +44,8 @@ export interface State {
   tlZoom: number;
   /** Scénář: velikost stránky v samostatném pohledu. */
   scriptZoom: number;
+  /** Scénář: náhled po stranách místo editoru. */
+  paged: boolean;
   /** Tabule a časová osa se přibližují společně. */
   zoomLink: boolean;
   split: boolean;
@@ -117,6 +119,7 @@ let state: State = {
   zoom: 1,
   tlZoom: 1,
   scriptZoom: 1,
+  paged: false,
   zoomLink: false,
   split: false,
   byLength: false,
@@ -171,7 +174,7 @@ export function useSel<T>(select: (s: State) => T): T {
     () => select(state),
   );
 }
-export const ui = (patch: Partial<Pick<State, 'selected' | 'multi' | 'filter' | 'filterOpen' | 'inspector' | 'colorBy' | 'highlight' | 'collapsed' | 'research' | 'linkFrom' | 'view' | 'tab' | 'zoom' | 'tlZoom' | 'scriptZoom' | 'zoomLink' | 'split' | 'byLength'>>) =>
+export const ui = (patch: Partial<Pick<State, 'selected' | 'multi' | 'filter' | 'filterOpen' | 'inspector' | 'colorBy' | 'highlight' | 'collapsed' | 'research' | 'linkFrom' | 'view' | 'tab' | 'zoom' | 'tlZoom' | 'scriptZoom' | 'paged' | 'zoomLink' | 'split' | 'byLength'>>) =>
   emit({ ...state, ...patch });
 
 let lastKey = '';
@@ -239,6 +242,9 @@ export const actions = {
   setTheme(theme: Theme) {
     applyTheme(theme);
     emit({ ...state, theme });
+  },
+  setPaper(paper: Project['paper']) {
+    mutate((p) => void (p.paper = paper));
   },
   setTargetPages(n: number) {
     mutate((p) => void (p.targetPages = Math.max(1, Math.round(n) || 1)), 'target');

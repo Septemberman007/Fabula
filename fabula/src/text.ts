@@ -75,26 +75,6 @@ export function toFountain(paras: Para[]): string {
   return s;
 }
 
-const WIDTH: Record<ParaType, number> = { scene: 60, action: 60, character: 38, paren: 25, dialogue: 35, transition: 60 };
-export const LINES_PER_PAGE = 55;
-
-/** Odhad počtu řádků, které beat zabere na stránce scénáře. */
-const linesCache = new WeakMap<Para[], number>();
-
-export function beatLines(b: Beat): number {
-  const hit = linesCache.get(b.paras);
-  if (hit !== undefined) return hit;
-  let n = 0;
-  b.paras.forEach((p, i) => {
-    if (!p.text.trim()) return;
-    const attached = (p.type === 'dialogue' || p.type === 'paren') && i > 0;
-    n += attached ? 0 : 1;
-    for (const line of p.text.split('\n')) n += Math.max(1, Math.ceil(line.length / WIDTH[p.type]));
-  });
-  linesCache.set(b.paras, n);
-  return n;
-}
-export const beatPages = (b: Beat) => beatLines(b) / LINES_PER_PAGE;
 export const beatWords = (b: Beat) => b.paras.reduce((n, p) => n + (p.text.match(/\S+/g)?.length ?? 0), 0);
 export const hasText = (b: Beat) => b.paras.some((p) => p.text.trim());
 
@@ -179,15 +159,4 @@ export const titleCase = (s: string) => s.toLocaleLowerCase('cs').replace(/(^|[\
 export function speakerCharacter(p: Project, text: string): ID | undefined {
   const s = speaker(text);
   return p.characters.find((c) => charWords(c).some((w) => up(w) === s))?.id;
-}
-
-/** Odhad řádků pro libovolný úsek odstavců (scéna může jít přes více beatů). */
-export const parasLines = (paras: Para[]) => beatLines({ paras } as Beat);
-
-/** Délka v osminách strany, jak se uvádí v produkci: „2 3/8“. */
-export function eighths(lines: number): string {
-  const e = Math.max(lines > 0 ? 1 : 0, Math.round((lines / LINES_PER_PAGE) * 8));
-  const whole = Math.floor(e / 8);
-  const rest = e % 8;
-  return [whole || '', rest ? `${rest}/8` : ''].filter(Boolean).join(' ') || '0';
 }

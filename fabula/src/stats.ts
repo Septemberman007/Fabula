@@ -1,5 +1,6 @@
 import type { ID, Para, ParaType, Project } from './model';
-import { LINES_PER_PAGE, detectedCharacters, parasLines, speaker, speakerCharacter } from './text';
+import { detectedCharacters, speaker, speakerCharacter } from './text';
+import { paginate } from './paginate';
 
 const words = (t: string) => t.match(/\S+/g)?.length ?? 0;
 const up = (s: string) => s.toLocaleUpperCase('cs');
@@ -36,6 +37,9 @@ export interface Scene {
   heading: string;
   parsed: Heading;
   beats: ID[];
+  /** Strana, na které scéna začíná. */
+  page: number;
+  /** Délka v řádcích podle skutečného stránkování. */
   lines: number;
   words: number;
   /** Mluvčí (jméno verzálkami) → počet replik a slov. */
@@ -64,7 +68,7 @@ export function scenes(p: Project): Scene[] {
     for (const para of b.paras) {
       if (!para.text.trim()) continue;
       if (para.type === 'scene') {
-        cur = { n: out.length + 1, heading: up(para.text.trim()), parsed: parseHeading(para.text), beats: [], lines: 0, words: 0, speakers: new Map(), cast: new Set(), tags: new Set(), tension: 0 };
+        cur = { n: out.length + 1, heading: up(para.text.trim()), parsed: parseHeading(para.text), beats: [], page: 0, lines: 0, words: 0, speakers: new Map(), cast: new Set(), tags: new Set(), tension: 0 };
         out.push(cur);
         paras.set(cur, []);
       }
@@ -73,9 +77,11 @@ export function scenes(p: Project): Scene[] {
       if (!cur.beats.includes(bid)) cur.beats.push(bid);
     }
   }
+  const pg = paginate(p);
   for (const sc of out) {
     const ps = paras.get(sc)!;
-    sc.lines = parasLines(ps);
+    sc.page = pg.para.get(ps[0].id)?.page ?? 0;
+    sc.lines = ps.reduce((n, x) => n + (pg.para.get(x.id)?.lines ?? 0), 0);
     sc.words = ps.reduce((n, x) => n + words(x.text), 0);
     let who: string | null = null;
     for (const x of ps) {
@@ -129,10 +135,10 @@ export function totals(p: Project, sc: Scene[]): Totals {
   const byType = { scene: { count: 0, words: 0 }, action: { count: 0, words: 0 }, character: { count: 0, words: 0 }, paren: { count: 0, words: 0 }, dialogue: { count: 0, words: 0 }, transition: { count: 0, words: 0 } };
   const all = p.order.filter((id) => p.beats[id]).map((id) => p.beats[id]);
   const active = all.filter((b) => !b.off);
-  let lines = 0;
+  const pg = paginate(p);
+  const lines = pg.totalLines;
   const byStatus: Record<string, number> = {};
   for (const b of active) {
-    lines += parasLines(b.paras);
     byStatus[b.status] = (byStatus[b.status] ?? 0) + 1;
     for (const x of b.paras) {
       if (!x.text.trim()) continue;
@@ -149,7 +155,7 @@ export function totals(p: Project, sc: Scene[]): Totals {
     written: active.filter((b) => b.paras.some((x) => x.text.trim())).length,
     scenes: sc.length,
     lines,
-    pages: lines / LINES_PER_PAGE,
+    pages: lines / pg.perPage,
     words: total,
     paragraphs: Object.values(byType).reduce((n, t) => n + t.count, 0),
     byType,

@@ -23,6 +23,7 @@ function blank(title: string): Project {
     titlePage: { author: '', basedOn: '', draft: '', contact: '' },
     revisions: [],
     targetPages: 110,
+    paper: 'a4',
   };
 }
 
@@ -61,6 +62,7 @@ export function normalize(x: unknown): Project | null {
   p.notes ??= [];
   p.revisions ??= [];
   p.targetPages ??= 110;
+  if (p.paper !== 'letter') p.paper = 'a4';
   p.titlePage = { author: '', basedOn: '', draft: '', contact: '', ...(p.titlePage ?? {}) };
   p.research ??= [];
   p.links = p.links.map((l: any) => ({ note: '', ...l }));

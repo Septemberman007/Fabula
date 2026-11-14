@@ -1,10 +1,9 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { ID, PARA_LABEL, ParaType, Project, REVISION_COLORS, STATUS_LABEL, beatName, beatNumber, revisionMark, tagCategories } from '../model';
 import { beatColor } from '../colors';
-import { parasLines } from '../text';
 import { State, actions, ui } from '../store';
 import { download } from '../io';
-import { LINES_PER_PAGE, eighths } from '../text';
+import { PAPERS, eighths as eighthsOf, pageRange, paginate } from '../paginate';
 import { cast, locations, scenes, toCsv, totalWords, totals } from '../stats';
 import { loadProductivity, saveGoal, streak, today } from '../local';
 
@@ -226,8 +225,15 @@ function Writing({ p }: { p: Project }) {
 /** Mapa příběhu: celý scénář jako pruh stran s beaty, předěly a cílovou délkou. */
 function StoryMap({ s }: { s: State }) {
   const p = s.project;
-  const items = p.order.map((id) => ({ id, beat: p.beats[id], pages: p.beats[id] && !p.beats[id].off ? parasLines(p.beats[id].paras) / LINES_PER_PAGE : 0 }));
-  const total = items.reduce((n, x) => n + x.pages, 0);
+  const pg = paginate(p);
+  const LINES_PER_PAGE = pg.perPage;
+  const eighths = (lines: number) => eighthsOf(lines, pg.perPage);
+  // Poloha beatu vychází ze skutečného stránkování, takže mapa sedí s čísly stran ve scénáři i v tisku.
+  const items = p.order.map((id) => {
+    const at = pg.beat.get(id);
+    return { id, beat: p.beats[id], place: at, from: at ? at.start / pg.perPage : -1, pages: at ? (at.end - at.start) / pg.perPage : 0 };
+  });
+  const total = pg.totalLines / pg.perPage;
   // Dokud je napsáno jen pár stran, přiblížíme měřítko na napsaný text; jinak by beaty nebyly vidět.
   const zoomed = total > 0 && total < p.targetPages * 0.15;
   const span = zoomed ? total : Math.max(p.targetPages, total, 1);
@@ -235,8 +241,8 @@ function StoryMap({ s }: { s: State }) {
   let at = 0;
   const marks: { title: string; page: number }[] = [];
   const blocks = items.map((x) => {
-    const start = at;
-    at += x.pages;
+    const start = x.from >= 0 ? x.from : at;
+    at = start + x.pages;
     if (!x.beat) marks.push({ title: p.breaks[x.id].title, page: start });
     return { ...x, start };
   });
@@ -265,14 +271,14 @@ function StoryMap({ s }: { s: State }) {
                 key={x.id}
                 className="sm-beat"
                 style={{ left: `${(x.start / span) * 100}%`, width: `${(x.pages / span) * 100}%`, background: beatColor(p, x.beat, s.colorBy) }}
-                title={`${beatNumber(p, x.id)}. ${beatName(p, x.id)} – str. ${(x.start + 1).toFixed(0)}, délka ${eighths(x.pages * LINES_PER_PAGE)}`}
+                title={`${beatNumber(p, x.id)}. ${beatName(p, x.id)} – str. ${pageRange(x.place)}, délka ${eighths(x.pages * LINES_PER_PAGE)}`}
                 onClick={() => ui({ selected: x.id, multi: [], view: 'script', tab: 'detail' })}
               />
             ))}
           {marks.map((m, i) => (
             <span key={i} className="sm-mark" style={{ left: `${(m.page / span) * 100}%` }}>
               <b>{m.title}</b>
-              <small>str. {Math.round(m.page) + 1}</small>
+              <small>str. {Math.floor(m.page + 1e-9) + 1}</small>
             </span>
           ))}
           {!zoomed && <span className="sm-target" style={{ left: `${(p.targetPages / span) * 100}%` }} title={`Cílová délka: ${p.targetPages} stran`} />}
@@ -293,7 +299,7 @@ function StoryMap({ s }: { s: State }) {
       ) : (
         <p className="muted">Mapa se naplní, jakmile beaty dostanou text. Zatím je scénář prázdný.</p>
       )}
-      <p className="muted small">Barvy beatů se řídí volbou „Barva podle“ na tabuli. Délky jsou odhad z {LINES_PER_PAGE} řádků na stranu.</p>
+      <p className="muted small">Barvy beatů se řídí volbou „Barva podle“ na tabuli. Strany odpovídají stránkování scénáře ({PAPERS[pg.paper].label}, {LINES_PER_PAGE} řádků na stranu).</p>
     </>
   );
 }
@@ -385,6 +391,8 @@ export function Reports({ s }: { s: State }) {
   const [tab, setTab] = useState<Tab>('stats');
   const sc = useMemo(() => scenes(p), [p]);
   const t = useMemo(() => totals(p, sc), [p, sc]);
+  const pg = paginate(p);
+  const eighths = (lines: number) => eighthsOf(lines, pg.perPage);
   const base = p.title.trim() || 'pribeh';
   const names = (ids: Iterable<ID>, list: { id: ID; name: string }[]) =>
     [...ids].map((id) => list.find((x) => x.id === id)?.name || '?').join(', ');
@@ -407,7 +415,7 @@ export function Reports({ s }: { s: State }) {
         {tab === 'stats' && (
           <>
             <div className="tiles">
-              <Tile label="Stran" value={t.pages < 1 && t.lines ? `${eighths(t.lines)}` : t.pages.toFixed(1).replace('.', ',')} sub={`≈ ${Math.round(t.pages) || (t.lines ? 1 : 0)} min filmu`} />
+              <Tile label="Stran" value={pg.pages.length} sub={t.lines ? `≈ ${pg.pages.length} min filmu · ${PAPERS[pg.paper].label}` : undefined} />
               <Tile label="Scén" value={t.scenes} sub={t.scenes ? `průměr ${eighths(t.avgSceneLines)} str.` : undefined} />
               <Tile label="Slov" value={num(t.words)} sub={`${num(t.paragraphs)} odstavců`} />
               <Tile label="Beatů" value={t.beats} sub={`${t.written} rozepsáno${t.beatsOff ? ` · ${t.beatsOff} vyřazeno` : ''}`} />
@@ -438,7 +446,7 @@ export function Reports({ s }: { s: State }) {
                       Nejkratší scéna: <b>{t.shortest!.n}. {t.shortest!.heading}</b> ({eighths(t.shortest!.lines)} str.)
                     </li>
                     <li>
-                      Odhad vychází z {LINES_PER_PAGE} řádků na stranu; skutečné stránkování se může lišit.
+                      Délky vycházejí ze stránkování scénáře: papír {PAPERS[pg.paper].label}, {pg.perPage} řádků na stranu.
                     </li>
                   </ul>
                 ) : (
@@ -458,6 +466,7 @@ export function Reports({ s }: { s: State }) {
               { head: '#', cell: (r) => r.n, value: (r) => r.n, right: true },
               { head: 'Scéna', cell: (r) => r.heading },
               { head: 'Beaty', cell: (r) => r.beats.map((b) => `${beatNumber(p, b)}. ${beatName(p, b)}`).join(' · ') },
+              { head: 'Strana', cell: (r) => r.page || '', value: (r) => r.page, right: true },
               { head: 'Délka (str.)', cell: (r) => eighths(r.lines), value: (r) => r.lines, right: true },
               { head: 'Slov', cell: (r) => r.words, value: (r) => r.words, right: true },
               { head: 'Postavy', cell: (r) => names(r.cast, p.characters) },
