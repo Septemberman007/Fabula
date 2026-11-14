@@ -100,3 +100,26 @@ export function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
   write(THEME_KEY, theme);
 }
+
+// ---------- Přiblížení scénáře ----------
+
+const SCRIPT_ZOOM_KEY = 'fabula.scriptZoom';
+export const SCRIPT_ZOOM = { min: 0.6, max: 3 };
+export const loadScriptZoom = () => Math.min(SCRIPT_ZOOM.max, Math.max(SCRIPT_ZOOM.min, read<number>(SCRIPT_ZOOM_KEY, 1) || 1));
+export const saveScriptZoom = (zoom: number) => write(SCRIPT_ZOOM_KEY, zoom);
+
+// ---------- Co je ve scénáři vidět ----------
+
+/** Doplňky kolem textu scénáře; když jsou všechny vypnuté, zbude čistý scénář. */
+export interface ScriptShow {
+  titles: boolean;
+  synopsis: boolean;
+  tags: boolean;
+  breaks: boolean;
+  pages: boolean;
+}
+export const SCRIPT_SHOW_ALL: ScriptShow = { titles: true, synopsis: true, tags: true, breaks: true, pages: true };
+export const SCRIPT_SHOW_NONE: ScriptShow = { titles: false, synopsis: false, tags: false, breaks: false, pages: false };
+const SCRIPT_SHOW_KEY = 'fabula.scriptShow';
+export const loadScriptShow = (): ScriptShow => ({ ...SCRIPT_SHOW_ALL, ...read<Partial<ScriptShow>>(SCRIPT_SHOW_KEY, {}) });
+export const saveScriptShow = (show: ScriptShow) => write(SCRIPT_SHOW_KEY, show);

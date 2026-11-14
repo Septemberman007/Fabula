@@ -2832,40 +2832,74 @@ button.pressed {
 }
 
 /* ---------- Stránkování scénáře ---------- */
-/* Sloupce editoru mají šířku ve znacích jako na papíře, aby zalomení řádků odpovídalo stránkování. */
+/* Souvislá psací plocha beatu. Sloupce mají šířku ve znacích jako na papíře, aby zalomení odpovídalo stránkování. */
 .beat-editor {
   --lh: 1.45em;
+  position: relative;
 }
-.para-body {
+.surface {
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  caret-color: var(--accent);
+}
+.pe {
+  --in: 0ch;
+  position: relative;
+  margin: 0.9em 0 0 var(--in);
   max-width: 60.5ch;
+  min-height: var(--lh);
 }
-.para-character {
-  padding-left: 22ch;
+.pe.cur {
+  background: rgb(var(--accent-rgb) / 0.05);
 }
-.para-character .para-body {
+.pe-scene {
+  margin-top: 1.4em;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.pe-character {
   max-width: 38.5ch;
+  text-transform: uppercase;
 }
-.para-dialogue {
-  padding-left: 10ch;
-  padding-right: 0;
-}
-.para-dialogue .para-body {
+.pe-dialogue {
+  margin-top: 0;
   max-width: 35.5ch;
 }
-.para-paren {
-  padding-left: 16ch;
-  padding-right: 0;
-}
-.para-paren .para-body {
+.pe-paren {
+  margin-top: 0;
   max-width: 25.5ch;
 }
-/* Zlom strany před odstavcem a uvnitř odstavce. */
-.para[data-page]::before,
-.page-split::before {
-  content: 'strana ' attr(data-page);
+.pe-transition {
+  text-align: right;
+  text-transform: uppercase;
+}
+/* Číslo scény vlevo od hlavičky, nápověda typu v prázdném odstavci. */
+.pe[data-scene]::before {
+  content: attr(data-scene);
+  position: absolute;
+  right: calc(100% + 24px);
+  top: 0.15em;
+  font: 600 12px var(--sans);
+  color: var(--muted);
+}
+.pe[data-ph]::before {
+  content: attr(data-ph);
   position: absolute;
   left: 0;
   right: 0;
+  color: var(--faint);
+  font-weight: 400;
+  text-transform: none;
+  pointer-events: none;
+}
+/* Zlom strany před odstavcem (čárkovaně) a uvnitř odstavce (tečkovaně). */
+.pe[data-page]::after,
+.pe[data-split]::after {
+  content: 'strana ' attr(data-page);
+  position: absolute;
+  left: calc(-1 * var(--in));
+  width: 60.5ch;
   top: -0.62em;
   border-top: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--line));
   font: 10px/1.5 var(--sans);
@@ -2875,29 +2909,62 @@ button.pressed {
   text-transform: none;
   pointer-events: none;
 }
-.para-scene[data-page]::before {
+.pe-scene[data-page]::after {
   top: -0.9em;
 }
-.page-split {
-  position: absolute;
-  left: 0;
-  width: 60.5ch;
-  height: 0;
-  pointer-events: none;
-}
-.page-split::before {
-  top: 0;
+.pe[data-split]::after {
+  content: 'strana ' attr(data-split);
+  top: calc(var(--split) * var(--lh));
   border-top-style: dotted;
   font-size: 9px;
 }
-.para-character .page-split {
-  left: -22ch;
+/* Nástroje u odstavce s kurzorem: typ a poznámka. */
+.pe-tools {
+  position: absolute;
+  right: calc(100% + 40px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
-.para-dialogue .page-split {
-  left: -10ch;
+.pe-tools select {
+  border: 0;
+  background: transparent;
+  font: 10px var(--sans);
+  color: var(--muted);
+  cursor: pointer;
+  max-width: 74px;
+  appearance: none;
+  text-align: right;
+  padding: 2px 0;
 }
-.para-paren .page-split {
-  left: -16ch;
+.pe-tools .note-btn {
+  opacity: 1;
+}
+.pe-note {
+  max-width: 60.5ch;
+  user-select: none;
+}
+.pe-note textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 3px 0 4px;
+  padding: 4px 8px;
+  border: 0;
+  border-left: 3px solid #c9a300;
+  background: var(--notice-bg);
+  font: 13px/1.35 var(--sans);
+  color: var(--ink);
+  resize: none;
+  field-sizing: content;
+  user-select: text;
+}
+.compact .pe-tools {
+  right: calc(100% + 22px);
+}
+.compact .pe-tools select {
+  max-width: 20px;
 }
 .script-pages {
   flex: none;
@@ -3037,4 +3104,92 @@ button.pressed {
   .sl.on {
     background: none;
   }
+}
+
+/* ---------- Scénář jako jedna psací plocha ---------- */
+.script-title,
+.script-syn {
+  position: relative;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  min-height: 1.3em;
+}
+.script-title {
+  flex: 1;
+  min-width: 0;
+}
+.script-syn {
+  line-height: 1.4;
+}
+[data-seg][data-ph]::before {
+  content: attr(data-ph);
+  position: absolute;
+  left: 0;
+  right: 0;
+  color: var(--faint);
+  font-weight: 400;
+  text-transform: none;
+  pointer-events: none;
+}
+/* Ovládací prvky uvnitř plochy se nevybírají spolu s textem. */
+.surface .script-fold,
+.surface .script-num,
+.surface .script-pages,
+.surface .script-tags,
+.surface .script-break {
+  user-select: none;
+}
+/* Čistý scénář: beat bez názvu, synopse a motivů je jen text. */
+.script-beat.bare,
+.compact .script-beat.bare {
+  margin-bottom: 0;
+  background: none;
+}
+.script-beat.bare::before {
+  display: none;
+}
+.show-menu {
+  position: relative;
+}
+.show-menu summary {
+  list-style: none;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 9px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.show-menu summary::-webkit-details-marker {
+  display: none;
+}
+.show-menu[open] summary {
+  background: var(--band);
+}
+.show-menu > div {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 190px;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgb(var(--shadow) / 0.16);
+  font-size: 13px;
+  color: var(--ink);
+}
+.show-menu label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.show-menu button {
+  font-size: 12px;
 }

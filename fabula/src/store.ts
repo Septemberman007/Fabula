@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { produce } from 'immer';
 import { Beat, BoardNote, CharRole, ID, NOTE_COLORS, PALETTE, Para, Project, ResearchItem, TagMode, newBeat, uid } from './model';
 import { carriedLevel } from './tension';
-import { Theme, applyTheme, autoBackup, loadTheme, rebaseWords, recordWords, saveBackup } from './local';
+import { Theme, applyTheme, autoBackup, ScriptShow, loadScriptShow, loadScriptZoom, loadTheme, rebaseWords, recordWords, saveBackup, saveScriptShow, saveScriptZoom } from './local';
 import { totalWords } from './stats';
 import { initAutosave, markDirty } from './autosave';
 import { dbGet, dbSet } from './db';
@@ -46,6 +46,8 @@ export interface State {
   scriptZoom: number;
   /** Scénář: náhled po stranách místo editoru. */
   paged: boolean;
+  /** Scénář: co se kromě samotného textu zobrazuje. */
+  scriptShow: ScriptShow;
   /** Tabule a časová osa se přibližují společně. */
   zoomLink: boolean;
   split: boolean;
@@ -118,8 +120,9 @@ let state: State = {
   tab: 'detail',
   zoom: 1,
   tlZoom: 1,
-  scriptZoom: 1,
+  scriptZoom: loadScriptZoom(),
   paged: false,
+  scriptShow: loadScriptShow(),
   zoomLink: false,
   split: false,
   byLength: false,
@@ -174,8 +177,13 @@ export function useSel<T>(select: (s: State) => T): T {
     () => select(state),
   );
 }
-export const ui = (patch: Partial<Pick<State, 'selected' | 'multi' | 'filter' | 'filterOpen' | 'inspector' | 'colorBy' | 'highlight' | 'collapsed' | 'research' | 'linkFrom' | 'view' | 'tab' | 'zoom' | 'tlZoom' | 'scriptZoom' | 'paged' | 'zoomLink' | 'split' | 'byLength'>>) =>
+export const ui = (patch: Partial<Pick<State, 'selected' | 'multi' | 'filter' | 'filterOpen' | 'inspector' | 'colorBy' | 'highlight' | 'collapsed' | 'research' | 'linkFrom' | 'view' | 'tab' | 'zoom' | 'tlZoom' | 'scriptZoom' | 'paged' | 'scriptShow' | 'zoomLink' | 'split' | 'byLength'>>) =>
+  {
+  // Přiblížení scénáře si prohlížeč pamatuje, aby ho nebylo třeba nastavovat při každém otevření.
+  if (patch.scriptZoom !== undefined) saveScriptZoom(patch.scriptZoom);
+  if (patch.scriptShow) saveScriptShow(patch.scriptShow);
   emit({ ...state, ...patch });
+};
 
 let lastKey = '';
 let lastTime = 0;
@@ -302,6 +310,10 @@ export const actions = {
   },
   updateBeat(id: ID, patch: Partial<Beat>, key?: string) {
     mutate((p) => void Object.assign(p.beats[id], patch), key ? `${key}:${id}` : undefined);
+  },
+  /** Úprava textu scénáře, která může sahat přes více beatů. */
+  editScript(fn: (p: Project) => void, key?: string) {
+    mutate(fn, key);
   },
   /** Úprava odstavců scénáře jednoho beatu. */
   editParas(beatId: ID, fn: (paras: Para[]) => void, key?: string) {
