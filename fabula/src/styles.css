@@ -2721,3 +2721,112 @@ button.pressed {
     display: none !important;
   }
 }
+
+.zoom-slider .zoom-link {
+  padding: 2px 5px;
+  line-height: 0;
+  color: var(--muted);
+}
+.zoom-slider .zoom-link.on {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.zoom-slider.compact input[type='range'] {
+  width: 56px;
+}
+.zoom-slider.compact .zoom-val {
+  min-width: 40px;
+}
+
+/* ---------- Tabule v přehledu (velké oddálení): karty jako barevné bloky ---------- */
+.card.mini {
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  box-shadow: none;
+}
+.card.mini > * {
+  display: none;
+}
+.card.mini.selected {
+  outline-width: 5px;
+  outline-offset: 2px;
+}
+.card.mini .card-err {
+  display: block;
+  top: 3px;
+  right: 3px;
+  width: 16px;
+  height: 16px;
+}
+.overview .break-col span {
+  font-size: 22px;
+  padding: 10px 0;
+}
+.overview .group-box button {
+  font-size: 26px;
+  top: -8px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.overview .group-box:not(.outer) button {
+  display: none;
+}
+.overview .lane-head {
+  font-size: 30px;
+}
+.overview .lane-head small {
+  font-size: 22px;
+}
+.overview .link {
+  stroke-width: 4;
+}
+
+.zoom-slider .zoom-fit {
+  padding: 2px 5px;
+  line-height: 0;
+  color: var(--muted);
+}
+.zoom-slider .zoom-fit:hover {
+  color: var(--ink);
+}
+/* Širší sloupec popisků, aby se do záhlaví osy vešel posuvník s oběma tlačítky. */
+.tl-labels {
+  width: 190px;
+}
+.zoom-slider.compact {
+  gap: 2px;
+}
+.zoom-slider.compact input[type='range'] {
+  width: 62px;
+}
+.tl-opts {
+  padding: 0 8px;
+}
+/* Při velkém oddálení se čísla beatů a značky nevejdou: čísla skryjeme, značky zmenšíme. */
+.tl-dense .tl-num {
+  display: none;
+}
+.tl-dense .tl-mark {
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+}
+.tl-dense .tl-mark.auto {
+  border-width: 1px;
+}
+.tl-dense .tl-dot,
+.tl-dense .tl-tagdot {
+  r: 2.5px;
+  stroke-width: 1;
+}
+.tl-dense .tl-beat {
+  padding: 0;
+  font-size: 0;
+  border-radius: 1px;
+}
+.tl-dense .tl-lane {
+  border-radius: 0;
+}

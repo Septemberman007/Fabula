@@ -1,13 +1,14 @@
 import { MouseEvent, PointerEvent, ReactNode, memo, useEffect, useMemo, useRef } from 'react';
 import { CharRole, Character, Group, ID, ROLE_LABEL, TAG_MODE_LABEL, Tag, beatName, groupBeats, tagCategories } from '../model';
 import { hasText } from '../text';
-import { ColorBy, State, actions, ui } from '../store';
+import { ColorBy, State, actions, setZoom, toggleZoomLink, ui } from '../store';
 import { beatPages, detectedCharacters } from '../text';
 import { derivedTension, heat, heatColor, tagTension } from '../tension';
 import { COLOR_BY_LABEL, beatColor } from '../colors';
-import { ZoomSlider, clampZoom } from '../ZoomSlider';
+import { ZoomSlider } from '../ZoomSlider';
+import { TIMELINE_COL, TIMELINE_ZOOM, fitZoom, registerFit } from '../zoom';
 
-const W = 84;
+const W = TIMELINE_COL;
 const BW = 22;
 const PAGE_W = 110;
 const HEAD = 34;
@@ -18,11 +19,8 @@ const TAG_ROW = 58;
 const HEAT = 26;
 const SECTION = 24;
 const PAD = 14;
-const ZOOM_MIN = 0.15;
-const ZOOM_MAX = 3;
-
-/** Gesto přibližuje po desetině současné hodnoty. */
-const zoomStep = (zoom: number, dir: 1 | -1) => clampZoom(zoom * (dir > 0 ? 1.1 : 1 / 1.1), ZOOM_MIN, ZOOM_MAX);
+/** Volné místo za posledním beatem. */
+const EXTRA = 40;
 
 interface Row {
   key: string;
@@ -38,13 +36,20 @@ const sceneLabel = (text: string) => text.replace(/^(INT|EXT)[^\s]*\s*/i, '').re
 export const Timeline = memo(function Timeline({ s, matches }: { s: State; matches: Set<ID> | null }) {
   const p = s.project;
   const scroller = useRef<HTMLDivElement>(null);
+  /** Šířka beatu při 100 %: pevná, nebo podle délky textu. */
+  const baseWidth = (id: ID) => (s.byLength ? Math.max(48, beatPages(p.beats[id]) * PAGE_W) : W);
+  // Při velkém oddálení se zúží i předěly, jinak by zabraly víc místa než beaty.
+  /** Hustý režim: sloupce jsou tak úzké, že se do nich nevejdou čísla ani mezery mezi bloky. */
+  const dense = W * s.tlZoom < 20;
+  const gap = dense ? 0 : 2;
+  const breakW = Math.max(6, Math.min(BW, BW * s.tlZoom * 2));
   const { xs, ws, width } = useMemo(() => {
     const xs: Record<ID, number> = {};
     const ws: Record<ID, number> = {};
     let x = 0;
     for (const id of p.order) {
       xs[id] = x;
-      ws[id] = p.beats[id] ? Math.round((s.byLength ? Math.max(48, beatPages(p.beats[id]) * PAGE_W) : W) * s.tlZoom) : BW;
+      ws[id] = p.beats[id] ? baseWidth(id) * s.tlZoom : breakW;
       x += ws[id];
     }
     return { xs, ws, width: x };
@@ -71,7 +76,8 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
       e.preventDefault();
       acc += e.deltaY;
       if (Math.abs(acc) < 40) return;
-      ui({ tlZoom: zoomStep(s.tlZoom, acc < 0 ? 1 : -1) });
+      // Gesto přibližuje po desetině současné hodnoty.
+      setZoom('timeline', s.tlZoom * (acc < 0 ? 1.1 : 1 / 1.1));
       acc = 0;
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -117,6 +123,23 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
     },
   });
 
+  /** Oddálí tak, aby se celý příběh vešel na šířku okna. */
+  const fitValue = (): number | null => {
+    const el = scroller.current;
+    const total = beats.reduce((n, id) => n + baseWidth(id), 0);
+    if (!el || !total) return null;
+    // Šířka předělu závisí na přiblížení (6 px až BW), proto tři případy.
+    const avail = el.clientWidth - EXTRA - 16;
+    const n = breaks.length;
+    const mid = avail / (total + 2 * BW * n);
+    const z = mid >= 0.5 ? (avail - BW * n) / total : mid * 2 * BW <= 6 ? (avail - 6 * n) / total : mid;
+    return Math.min(1, z);
+  };
+  useEffect(() => registerFit('timeline', fitValue));
+  const fit = () => {
+    const f = fitZoom('timeline', s.zoomLink);
+    if (f) setZoom(f.which, f.value);
+  };
   const sel = (id: ID) => ui({ selected: id, multi: [], tab: 'detail' });
   /** Beat, do jehož sloupce se kliklo (řádek má jedinou klikací vrstvu přes celou šířku). */
   const beatAt = (e: MouseEvent<HTMLElement>) => {
@@ -192,7 +215,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
       content: (
         <>
           {hit(`Kliknutím do sloupce beatu přidáš „${t.name}“`, (id) => !used.includes(id) && actions.toggleTag(id, t.id))}
-          <svg className="tl-tagsvg" width={width + 80} height={TAG_ROW}>
+          <svg className="tl-tagsvg" width={width + EXTRA} height={TAG_ROW}>
             {used.slice(1).map((id, i) => {
               const a = used[i];
               const seg = { x1: cx(a), y1: ly(lvl(a)), x2: cx(id), y2: ly(lvl(id)) };
@@ -272,7 +295,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
       h: HEAD,
       kind: 'head',
       label: (
-        <ZoomSlider compact value={s.tlZoom} min={ZOOM_MIN} max={ZOOM_MAX} what="časovou osu" onChange={(z) => ui({ tlZoom: z })} />
+        <ZoomSlider compact value={s.tlZoom} min={TIMELINE_ZOOM.min} max={TIMELINE_ZOOM.max} what="časovou osu" onChange={(z) => setZoom('timeline', z)} linked={s.zoomLink} onLink={toggleZoomLink} onFit={fit} />
       ),
       content: p.order.map((id) =>
         p.beats[id] ? (
@@ -281,7 +304,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
             {++n}
           </span>
         ) : (
-          <span key={id} className="tl-break-name" style={{ left: xs[id] + BW }}>
+          <span key={id} className="tl-break-name" style={{ left: xs[id] + breakW }}>
             {p.breaks[id].title}
           </span>
         ),
@@ -302,7 +325,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
         <span
           key={sc.first}
           className="tl-scene"
-          style={{ left: xs[sc.first] + 2, width: xs[sc.last] + ws[sc.last] - xs[sc.first] - 4 }}
+          style={{ left: xs[sc.first] + gap, width: Math.max(1, xs[sc.last] + ws[sc.last] - xs[sc.first] - 2 * gap - (dense ? 1 : 0)) }}
           title={`${sc.heading.toLocaleUpperCase('cs')}${sc.count > 1 ? ` – ${sc.count} beaty` : ''}`}
           onClick={() => sel(sc.first)}
         >
@@ -329,7 +352,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
         <span
           key={id}
           className="tl-beat"
-          style={{ left: xs[id] + 2, width: ws[id] - 4, background: beatColor(p, p.beats[id], s.colorBy) }}
+          style={{ left: xs[id] + gap, width: Math.max(1, ws[id] - 2 * gap - (dense ? 0.5 : 0)), background: beatColor(p, p.beats[id], s.colorBy) }}
           title={`${beatName(p, id)}${p.beats[id].synopsis ? ' – ' + p.beats[id].synopsis : ''}`}
           onClick={() => sel(id)}
         >
@@ -347,7 +370,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
         </>
       ),
       content: (
-        <svg className="tl-curve" width={width + 80} height={CURVE}>
+        <svg className="tl-curve" width={width + EXTRA} height={CURVE}>
           {[0, 5, 10].map((t) => (
             <line key={t} x1={0} x2={width} y1={ty(t)} y2={ty(t)} className="tl-grid" />
           ))}
@@ -395,7 +418,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
       h: ROW,
       label,
       content: items.map(({ g, left, width }) => (
-        <span key={g.id} className={`tl-group${key === 'blocks' ? ' solid' : ''}`} style={{ left: left + 3, width: width - 6, borderColor: g.color, color: g.color }} title={g.title}>
+        <span key={g.id} className={`tl-group${key === 'blocks' ? ' solid' : ''}`} style={{ left: left + gap, width: Math.max(2, width - 2 * gap), borderColor: g.color, color: g.color }} title={g.title}>
           {g.title}
         </span>
       )),
@@ -418,7 +441,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
   }
 
   return (
-    <div className="timeline">
+    <div className={`timeline${dense ? ' tl-dense' : ''}`}>
       <div className="tl-labels">
         {rows.map((r) => (
           <div key={r.key} className={r.kind === 'section' ? 'tl-section tl-sec' : r.kind === 'head' ? 'tl-opts' : 'tl-label'} style={{ height: r.h }}>
@@ -428,7 +451,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
       </div>
 
       <div className="tl-scroll" ref={scroller}>
-        <div className="tl-canvas" style={{ width: width + 80 }}>
+        <div className="tl-canvas" style={{ width: width + EXTRA }}>
           {beats.map((id) => (
             <div
               key={id}
@@ -438,7 +461,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
             />
           ))}
           {breaks.map((id) => (
-            <div key={id} className="tl-break" style={{ left: xs[id] + BW / 2 }} title={p.breaks[id].title} />
+            <div key={id} className="tl-break" style={{ left: xs[id] + breakW / 2 }} title={p.breaks[id].title} />
           ))}
           {rows.map((r) => (
             <div key={r.key} className={r.kind === 'section' ? 'tl-row tl-section' : r.kind === 'head' ? 'tl-row tl-head' : 'tl-row'} style={{ height: r.h }}>

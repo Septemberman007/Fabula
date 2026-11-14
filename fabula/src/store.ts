@@ -6,6 +6,7 @@ import { Theme, applyTheme, autoBackup, loadTheme, rebaseWords, recordWords, sav
 import { totalWords } from './stats';
 import { initAutosave, markDirty } from './autosave';
 import { dbGet, dbSet } from './db';
+import { zoomPair } from './zoom';
 import { EMPTY_FILTER, Filter } from './filter';
 import { emptyProject, seed } from './seed';
 import { normalize } from './io';
@@ -43,6 +44,8 @@ export interface State {
   tlZoom: number;
   /** Scénář: velikost stránky v samostatném pohledu. */
   scriptZoom: number;
+  /** Tabule a časová osa se přibližují společně. */
+  zoomLink: boolean;
   split: boolean;
   /** Časová osa: šířka beatu podle délky textu. */
   byLength: boolean;
@@ -114,6 +117,7 @@ let state: State = {
   zoom: 1,
   tlZoom: 1,
   scriptZoom: 1,
+  zoomLink: false,
   split: false,
   byLength: false,
   past: [],
@@ -167,7 +171,7 @@ export function useSel<T>(select: (s: State) => T): T {
     () => select(state),
   );
 }
-export const ui = (patch: Partial<Pick<State, 'selected' | 'multi' | 'filter' | 'filterOpen' | 'inspector' | 'colorBy' | 'highlight' | 'collapsed' | 'research' | 'linkFrom' | 'view' | 'tab' | 'zoom' | 'tlZoom' | 'scriptZoom' | 'split' | 'byLength'>>) =>
+export const ui = (patch: Partial<Pick<State, 'selected' | 'multi' | 'filter' | 'filterOpen' | 'inspector' | 'colorBy' | 'highlight' | 'collapsed' | 'research' | 'linkFrom' | 'view' | 'tab' | 'zoom' | 'tlZoom' | 'scriptZoom' | 'zoomLink' | 'split' | 'byLength'>>) =>
   emit({ ...state, ...patch });
 
 let lastKey = '';
@@ -210,6 +214,11 @@ function replaceProject(next: Project) {
   });
   ui({ selected: null, linkFrom: null, multi: [], research: null, filter: EMPTY_FILTER });
 }
+
+/** Nastaví přiblížení tabule nebo osy; při propojení dopočítá i to druhé. */
+export const setZoom = (which: 'board' | 'timeline', value: number) => ui(zoomPair(which, value, state.zoomLink, state));
+/** Zapne či vypne propojení; při zapnutí srovná osu podle tabule. */
+export const toggleZoomLink = () => ui({ zoomLink: !state.zoomLink, ...(state.zoomLink ? {} : zoomPair('board', state.zoom, true, state)) });
 
 export const actions = {
   undo() {

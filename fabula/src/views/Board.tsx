@@ -1,13 +1,14 @@
 import { DragEvent, MouseEvent, PointerEvent, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { BoardNote, ID, NOTE_COLORS, Project, STATUS_LABEL, beatName, beatNumber, groupBeats } from '../model';
-import { ColorBy, State, actions, ui } from '../store';
+import { ColorBy, State, actions, setZoom, toggleZoomLink, ui } from '../store';
 import { COLOR_BY_LABEL, beatColor } from '../colors';
 import { Issue, brokenLinks } from '../evaluate';
 import { beatCharacters } from '../text';
 import { BeatEditor } from '../BeatEditor';
-import { ZoomSlider, clampZoom } from '../ZoomSlider';
+import { ZoomSlider } from '../ZoomSlider';
+import { BOARD_COL, BOARD_ZOOM, fitZoom, registerFit } from '../zoom';
 
-const COL = 208;
+const COL = BOARD_COL;
 const BRK = 46;
 const CARD_W = 184;
 const CARD_H = 104;
@@ -15,13 +16,13 @@ const TOP = 30;
 /** Volná plocha pod liniemi pro poznámky. */
 const FREE = 150;
 const CARD_DX = (COL - CARD_W) / 2;
+/** Pod tímto přiblížením se už nezmenšuje výška: zužují se jen sloupce a karty se mění v barevné bloky. */
+const MIN_SCALE = 0.45;
 /** Odsazení karty od horního okraje linie: místo pro popisky skupiny a bloku. */
 const CARD_DY = 52;
 /** Rozestup karet, které se ve stejné linii dějí souběžně. */
 const STACK = CARD_H + 10;
 const LANE_PAD = 26;
-const ZOOM_MIN = 0.25;
-const ZOOM_MAX = 1.5;
 
 interface Col {
   x: number;
@@ -36,7 +37,7 @@ interface Col {
  * – Souběžný beat sdílí sloupec s předchozím; ve stejné linii se karty skládají pod sebe a linie se zvýší.
  * – Sbalený blok či skupina zabere jediný sloupec (u svého prvního beatu); ostatní jeho beaty se nekreslí.
  */
-function layout(p: Project) {
+function layout(p: Project, col: number, brk: number) {
   const cols: Record<ID, Col> = {};
   const slot: Record<ID, number> = {};
   const byId = new Map(p.groups.map((g) => [g.id, g]));
@@ -58,8 +59,8 @@ function layout(p: Project) {
   for (const id of p.order) {
     const b = p.beats[id];
     if (!b) {
-      cols[id] = { x, w: BRK };
-      x += BRK;
+      cols[id] = { x, w: brk };
+      x += brk;
       prev = null;
       continue;
     }
@@ -69,17 +70,17 @@ function layout(p: Project) {
       hidden.add(id);
       const first = rep.get(root);
       if (first) {
-        cols[id] = { x: cols[first].x + COL / 2, w: 0, n };
+        cols[id] = { x: cols[first].x + col / 2, w: 0, n };
         continue;
       }
       rep.set(root, id);
     }
     const lane = laneIdx.get(b.laneId) ?? 0;
     if (b.concurrent && prev && !root && !hidden.has(prev)) {
-      cols[id] = { x: cols[prev].x, w: COL, n };
+      cols[id] = { x: cols[prev].x, w: col, n };
     } else {
-      cols[id] = { x, w: COL, n, lead: true };
-      x += COL;
+      cols[id] = { x, w: col, n, lead: true };
+      x += col;
       used = new Map();
     }
     slot[id] = used.get(lane) ?? 0;
@@ -97,10 +98,14 @@ function layout(p: Project) {
   return { cols, width: x, rep, hidden, slot, laneTop, laneH, height: y, rootOf };
 }
 
-function Note({ note, zoom }: { note: BoardNote; zoom: number }) {
+/**
+ * Lepicí poznámka. Její vodorovná poloha je uložená v měřítku plných sloupců;
+ * při oddálení se násobí `squeeze`, aby zůstala nad stejnými beaty.
+ */
+function Note({ note, zoom, squeeze }: { note: BoardNote; zoom: number; squeeze: number }) {
   const start = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
   return (
-    <div className="note" style={{ left: note.x, top: note.y, background: note.color }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+    <div className="note" style={{ left: note.x * squeeze, top: note.y, background: note.color }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <div
         className="note-bar"
         title="Táhni pro přesun"
@@ -111,7 +116,7 @@ function Note({ note, zoom }: { note: BoardNote; zoom: number }) {
         onPointerMove={(e) => {
           const s = start.current;
           if (!s || !(e.buttons & 1)) return;
-          actions.updateNote(note.id, { x: Math.max(0, Math.round(s.x + (e.clientX - s.px) / zoom)), y: Math.max(TOP, Math.round(s.y + (e.clientY - s.py) / zoom)) }, 'move');
+          actions.updateNote(note.id, { x: Math.max(0, Math.round(s.x + (e.clientX - s.px) / zoom / squeeze)), y: Math.max(TOP, Math.round(s.y + (e.clientY - s.py) / zoom)) }, 'move');
         }}
         onPointerUp={() => (start.current = null)}
       >
@@ -132,8 +137,20 @@ function Note({ note, zoom }: { note: BoardNote; zoom: number }) {
 
 export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: State; issues: Issue[]; matches: Set<ID> | null; noSplit?: boolean }) {
   const p = s.project;
-  const zoom = s.zoom;
-  const { cols, width, rep, hidden, slot, laneTop, laneH, height, rootOf } = useMemo(() => layout(p), [p]);
+  const userZoom = s.zoom;
+  // Skutečné měřítko plochy. Při větším oddálení zůstává na MIN_SCALE a o zbytek se zúží sloupce,
+  // takže se na obrazovku vejde víc beatů, ale linie neklesnou na nečitelný proužek.
+  const zoom = Math.max(userZoom, MIN_SCALE);
+  const squeeze = userZoom / zoom;
+  const colW = COL * squeeze;
+  const brkW = Math.max(10, BRK * squeeze);
+  const cardDx = squeeze < 1 ? Math.max(1.5, CARD_DX * squeeze) : CARD_DX;
+  const cardW = colW - 2 * cardDx;
+  /** Přehledový režim: karta je jen barevný blok bez textu. */
+  const mini = colW < 110;
+  /** Volné místo za posledním beatem (pro přetažení na konec); v přehledu stačí málo. */
+  const margin = mini ? 30 : 260;
+  const { cols, width, rep, hidden, slot, laneTop, laneH, height, rootOf } = useMemo(() => layout(p, colW, brkW), [p, colW, brkW]);
   /** Počet scén před vybraným beatem – pro číslování hlaviček v panelu s textem. */
   const sceneBase = useMemo(() => {
     let k = 0;
@@ -259,14 +276,14 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
       // Beat ve sbalené sekvenci: vazby míří na kartu sekvence.
       const root = rootOf(id)!;
       const lanes = groupBeats(p, root).map(laneOf);
-      const left = cols[rep.get(root)!].x + CARD_DX;
+      const left = cols[rep.get(root)!].x + cardDx;
       const top = TOP + laneTop[Math.min(...lanes)] + CARD_DY;
       const bottom = TOP + laneTop[Math.max(...lanes)] + CARD_DY + CARD_H;
-      return { left, top, right: left + CARD_W, mid: (top + bottom) / 2, cx: left + CARD_W / 2, bottom };
+      return { left, top, right: left + cardW, mid: (top + bottom) / 2, cx: left + cardW / 2, bottom };
     }
-    const left = cols[id].x + CARD_DX;
+    const left = cols[id].x + cardDx;
     const top = TOP + laneTop[laneOf(id)] + CARD_DY + (slot[id] ?? 0) * STACK;
-    return { left, top, right: left + CARD_W, mid: top + CARD_H / 2, cx: left + CARD_W / 2, bottom: top + CARD_H };
+    return { left, top, right: left + cardW, mid: top + CARD_H / 2, cx: left + cardW / 2, bottom: top + CARD_H };
   };
 
   // Společný kurzor: beat vybraný v jiném panelu posuneme do viditelné části tabule.
@@ -334,7 +351,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
     .sort((a, b) => Number(b.outer) - Number(a.outer));
 
   /** Gesto přibližuje po desetině současné hodnoty, aby bylo stejně citlivé u malého i velkého přiblížení. */
-  const zoomStep = (dir: 1 | -1) => ui({ zoom: clampZoom(zoom * (dir > 0 ? 1.1 : 1 / 1.1), ZOOM_MIN, ZOOM_MAX) });
+  const zoomStep = (dir: 1 | -1) => setZoom('board', userZoom * (dir > 0 ? 1.1 : 1 / 1.1));
 
   // Gesto roztažení na trackpadu (nebo kolečko s Ctrl či ⌘) tabuli přibližuje a oddaluje.
   useEffect(() => {
@@ -351,7 +368,26 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [zoom]);
+  }, [userZoom]);
+
+  /** Oddálí tak, aby se celý příběh vešel na šířku okna. */
+  const fitValue = (): number | null => {
+    const el = scroller.current;
+    const columns = p.order.filter((id) => cols[id]?.lead).length;
+    const breaks = p.order.filter((id) => p.breaks[id]).length;
+    if (!el || !columns) return null;
+    // Krátký příběh se vejde bez přehledového režimu: všechno (i záhlaví linií a okraj) se zmenšuje stejně.
+    const plain = (el.clientWidth - 6) / (columns * COL + 140 + 260 + breaks * BRK);
+    if (plain >= MIN_SCALE) return Math.min(1, plain);
+    // V přehledu zabere sloupec COL × přiblížení; záhlaví linií, předěly a okraj mají pevnou šířku.
+    const fixed = (140 + 30 + breaks * 10) * MIN_SCALE + 6;
+    return (el.clientWidth - fixed) / (columns * COL);
+  };
+  useEffect(() => registerFit('board', fitValue));
+  const fit = () => {
+    const f = fitZoom('board', s.zoomLink);
+    if (f) setZoom(f.which, f.value);
+  };
 
   const bandDown = (e: PointerEvent) => {
     if (e.button !== 0 || !(e.target as HTMLElement).dataset.bg) return;
@@ -384,7 +420,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
 
   const addNote = () => {
     const el = scroller.current!;
-    const id = actions.addNote(Math.round(el.scrollLeft / zoom + 40), TOP + height + 14);
+    const id = actions.addNote(Math.round((el.scrollLeft / zoom + 40) / squeeze), TOP + height + 14);
     setTimeout(() => document.querySelector<HTMLTextAreaElement>(`textarea[data-note="${id}"]`)?.focus(), 30);
   };
 
@@ -414,7 +450,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
             ))}
           </select>
           <button onClick={addNote}>+ Poznámka</button>
-          <ZoomSlider value={zoom} min={ZOOM_MIN} max={ZOOM_MAX} what="tabuli" onChange={(z) => ui({ zoom: z })} />
+          <ZoomSlider value={userZoom} min={BOARD_ZOOM.min} max={BOARD_ZOOM.max} what="tabuli" onChange={(z) => setZoom('board', z)} linked={s.zoomLink} onLink={toggleZoomLink} onFit={fit} />
           {!noSplit && (
           <label className="check">
             <input type="checkbox" checked={s.split} onChange={(e) => ui({ split: e.target.checked })} /> Text scény pod tabulí
@@ -424,7 +460,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
       </div>
 
       <div className="board-scroll" ref={scroller}>
-        <div className="board-zoom" style={{ zoom }}>
+        <div className={`board-zoom${mini ? ' overview' : ''}`} style={{ zoom }}>
           <div className="lane-heads" style={{ paddingTop: TOP }}>
             {p.lanes.map((l, i) => (
               <div key={l.id} className="lane-head" style={{ height: laneH[i], borderLeftColor: l.color }}>
@@ -441,7 +477,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
             ref={canvas}
             data-bg="1"
             className="canvas"
-            style={{ width: width + 260, height: TOP + height + FREE }}
+            style={{ width: width + margin, height: TOP + height + FREE }}
             onDragOver={onDragOver}
             onDrop={onDrop}
             onDragLeave={(e) => e.currentTarget === e.target && setDrop(null)}
@@ -455,7 +491,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
               <div key={l.id} data-bg="1" className="lane-row" style={{ top: TOP + laneTop[i], height: laneH[i] }} />
             ))}
 
-            {cursorId && <div className="cursor-col" style={{ left: cols[cursorId].x, width: COL, height: TOP + height }} />}
+            {cursorId && <div className="cursor-col" style={{ left: cols[cursorId].x, width: colW, height: TOP + height }} />}
 
             {groupBoxes.map(({ g, outer, ...box }) => (
               <div key={g.id} className={`group-box${outer ? ' outer' : ''}`} style={{ ...box, borderColor: g.color, background: g.color + (outer ? '0d' : '14') }}>
@@ -468,7 +504,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
             {p.order.map((id) =>
               p.beats[id] ? (
                 cols[id].lead && (
-                  <div key={id} className="col-num" style={{ left: cols[id].x, width: COL }}>
+                  <div key={id} className="col-num" style={{ left: cols[id].x, width: colW, display: mini ? 'none' : undefined }}>
                     {(hidden.has(id) ? members(rootOf(id)!) : p.order.filter((m) => p.beats[m] && !hidden.has(m) && cols[m].x === cols[id].x)).map((m) => cols[m].n).join(', ')}
                   </div>
                 )
@@ -476,7 +512,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
                 <div
                   key={id}
                   className={`break-col${s.selected === id ? ' selected' : ''}`}
-                  style={{ left: cols[id].x, width: BRK, height: TOP + height }}
+                  style={{ left: cols[id].x, width: brkW, height: TOP + height }}
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.setData('text/plain', id);
@@ -492,7 +528,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
               ),
             )}
 
-            <svg className="links" width={width + 260} height={TOP + height}>
+            <svg className="links" width={width + margin} height={TOP + height}>
               <defs>
                 <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M 0 1 L 9 5 L 0 9 z" className="arrow-ok" />
@@ -533,8 +569,8 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
                 return (
                   <div
                     key={g.id}
-                    className={`card group-card${anyPicked ? ' selected' : ''}${matches && !ids.some((id) => matches.has(id)) ? ' out' : ''}`}
-                    style={{ left: box.left, top: box.top, width: CARD_W, height: box.bottom - box.top, borderColor: g.color, background: `color-mix(in srgb, ${g.color} 9%, var(--surface))` }}
+                    className={`card group-card${mini ? ' mini' : ''}${anyPicked ? ' selected' : ''}${matches && !ids.some((id) => matches.has(id)) ? ' out' : ''}`}
+                    style={{ left: box.left, top: box.top, width: cardW, height: box.bottom - box.top, borderColor: g.color, background: `color-mix(in srgb, ${g.color} 9%, var(--surface))` }}
                     onClick={(e) => (e.stopPropagation(), ui({ multi: ids.length > 1 ? ids : [], selected: ids[0], tab: 'detail' }))}
                     onDoubleClick={(e) => (e.stopPropagation(), actions.updateGroup(g.id, { collapsed: false }))}
                     title="Sbalená sekvence – dvojklikem rozbalíš"
@@ -570,6 +606,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
                   related && !related.has(id) && !wire && 'dim',
                   matches && !matches.has(id) && 'out',
                   b.off && 'off',
+                  mini && 'mini',
                 ]
                   .filter(Boolean)
                   .join(' ');
@@ -578,13 +615,14 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
                     key={id}
                     data-beat={id}
                     className={cls}
+                    title={mini ? `${cols[id].n}. ${beatName(p, id)}` : undefined}
                     style={{
                       left: box.left,
                       top: box.top,
-                      width: CARD_W,
+                      width: cardW,
                       height: CARD_H,
                       borderTopColor: color,
-                      background: s.colorBy === 'lane' ? undefined : `color-mix(in srgb, ${color} 13%, var(--surface))`,
+                      background: mini ? color : s.colorBy === 'lane' ? undefined : `color-mix(in srgb, ${color} 13%, var(--surface))`,
                     }}
                     draggable={!wire}
                     onDragStart={(e) => {
@@ -627,7 +665,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
               })}
 
             {p.notes.map((n) => (
-              <Note key={n.id} note={n} zoom={zoom} />
+              <Note key={n.id} note={n} zoom={zoom} squeeze={squeeze} />
             ))}
 
             {band_ && <div className="band" style={band_} />}
