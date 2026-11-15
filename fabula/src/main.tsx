@@ -12,3 +12,8 @@ void boot().then(() =>
     </StrictMode>,
   ),
 );
+
+// Mimo vývoj si aplikace uloží své soubory do zařízení, aby šla spustit i bez připojení (viz public/sw.js).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => void navigator.serviceWorker.register('./sw.js').catch(() => undefined));
+}

@@ -4,8 +4,28 @@
     {
       "name": "fabula",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "fabula", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "fabula",
+        "run",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "fabula-build",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "fabula",
+        "run",
+        "preview",
+        "--",
+        "--port",
+        "4173",
+        "--strictPort"
+      ],
+      "port": 4173
     }
   ]
 }
