@@ -5,7 +5,7 @@ import { State, actions, getState, ui } from '../store';
 import { BeatParas, SegText, useSurface } from '../Surface';
 import { ZoomSlider } from '../ZoomSlider';
 import { beatWords, hasText } from '../text';
-import { PAPERS, Pagination, pageRange, paginate } from '../paginate';
+import { PAPERS, Pagination, pageRange, paginate, paperOf } from '../paginate';
 import { Pages } from './Pages';
 import { SCRIPT_SHOW_ALL, SCRIPT_SHOW_NONE, SCRIPT_ZOOM, ScriptShow } from '../local';
 
@@ -113,6 +113,16 @@ export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | 
     };
   }, [zoomable]);
   const paged = !!zoomable && s.paged;
+  // Náhled stran se na úzkém displeji zmenší tak, aby se list vešel na šířku.
+  const box = useRef<HTMLDivElement>(null);
+  const [winW, setWinW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    if (!box.current) return;
+    const ro = new ResizeObserver(([e]) => setWinW(e.contentRect.width));
+    ro.observe(box.current);
+    return () => ro.disconnect();
+  }, []);
+  const sheetFit = Math.min(1, winW / (PAPERS[paperOf(s.project)].px + 2));
   const show = s.scriptShow;
   const root = useRef<HTMLDivElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
@@ -174,7 +184,7 @@ export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | 
   let n = 0;
 
   return (
-    <div className="script">
+    <div className="script" ref={box}>
       <div className="script-stats">
         {beats.filter(hasText).length} z {beats.length} beatů rozepsáno · {sceneCount} scén · {words} slov · {pages} str. (≈ {pages} min)
         {hiddenCount > 0 && <b> · {hiddenCount} beatů skryto filtrem</b>}
@@ -225,7 +235,7 @@ export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | 
         )}
         {zoomable && <ZoomSlider value={s.scriptZoom} min={SCRIPT_ZOOM.min} max={SCRIPT_ZOOM.max} what="scénář" onChange={(z) => ui({ scriptZoom: z })} />}
       </div>
-      {(paged || printing) && <Pages p={p} pg={pg} zoom={s.scriptZoom} selected={s.selected} />}
+      {(paged || printing) && <Pages p={p} pg={pg} zoom={printing ? 1 : s.scriptZoom * sheetFit} selected={s.selected} />}
       {!paged && (
       <div className="page beat-editor" ref={wrap} style={zoomable && s.scriptZoom !== 1 ? { zoom: s.scriptZoom } : undefined} {...sf.focus}>
         <div key={sf.epoch} ref={root} className="surface" {...sf.host}>

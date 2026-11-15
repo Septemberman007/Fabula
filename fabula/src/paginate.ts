@@ -10,9 +10,9 @@ import { UPPER } from './text';
  * jméno mluvčího se neoddělí od repliky, dlouhá replika se dělí s „(DÁLE)“ a „(POKR.)“.
  */
 
-export const PAPERS: Record<Paper, { label: string; lines: number; width: string; height: string; css: string }> = {
-  a4: { label: 'A4', lines: 58, width: '210mm', height: '297mm', css: 'A4' },
-  letter: { label: 'US Letter', lines: 54, width: '8.5in', height: '11in', css: 'letter' },
+export const PAPERS: Record<Paper, { label: string; lines: number; width: string; height: string; css: string; px: number }> = {
+  a4: { label: 'A4', lines: 58, width: '210mm', height: '297mm', css: 'A4', px: 794 },
+  letter: { label: 'US Letter', lines: 54, width: '8.5in', height: '11in', css: 'letter', px: 816 },
 };
 export const paperOf = (p: Pick<Project, 'paper'>): Paper => (p.paper === 'letter' ? 'letter' : 'a4');
 /** Počet řádků textu na straně zvoleného papíru. */

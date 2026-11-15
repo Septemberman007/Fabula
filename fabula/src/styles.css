@@ -3193,3 +3193,223 @@ button.pressed {
 .show-menu button {
   font-size: 12px;
 }
+
+/* ---------- Tablet a mobil ---------- */
+.app {
+  height: 100dvh;
+}
+.topbar {
+  padding-top: max(8px, env(safe-area-inset-top));
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(14px, env(safe-area-inset-right));
+}
+/* Dotykové ovládání: větší cíle a písmo, při kterém iOS po klepnutí do pole stránku nepřibližuje. */
+@media (pointer: coarse) {
+  .topbar button,
+  .views button,
+  .tabs button,
+  .rep-tabs button,
+  .show-menu summary,
+  .seg button {
+    min-height: 36px;
+  }
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+  .beat-editor {
+    font-size: 16px;
+  }
+  .compact .beat-editor {
+    font-size: 16px;
+  }
+  .show-menu label {
+    min-height: 32px;
+  }
+}
+
+@media (max-width: 900px) {
+  .main {
+    flex-direction: row;
+    position: relative;
+  }
+  /* Detail beatu se vysouvá přes obsah, aby mu nezabíral místo. */
+  .inspector {
+    position: absolute;
+    z-index: 40;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(360px, 92%);
+    max-height: none;
+    border-top: 0;
+    border-left: 1px solid var(--line);
+    box-shadow: -8px 0 28px rgb(var(--shadow) / 0.22);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .topbar {
+    gap: 8px;
+    padding-bottom: 6px;
+  }
+  .brand,
+  .topbar .sep,
+  .stepper {
+    display: none;
+  }
+  .project-title {
+    width: 130px;
+    flex: 1 1 110px;
+    min-width: 0;
+  }
+  /* Přepínač pohledů má vlastní řádek, který se dá posouvat do stran. */
+  .views {
+    order: 10;
+    flex: 1 0 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .views::-webkit-scrollbar {
+    display: none;
+  }
+  .views button {
+    flex: 1 0 auto;
+    white-space: nowrap;
+  }
+  .tools {
+    margin-left: 0;
+    gap: 4px;
+  }
+  .search input {
+    width: 120px;
+  }
+  /* Pohled „Vše“: scénář nahoře, časová osa a tabule pod ním. */
+  .all {
+    flex-direction: column;
+  }
+  .all-script {
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    flex: 1 1 50%;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .all-right {
+    flex: 1 1 50%;
+    min-height: 0;
+  }
+  .rep-cols {
+    display: block;
+  }
+  .rep-body {
+    overflow-x: auto;
+  }
+  .rep-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+  .rep-tabs button {
+    white-space: nowrap;
+    flex: none;
+  }
+}
+
+/* Mobil: stránka scénáře bez širokých okrajů, proužek linie těsně u kraje. */
+@media (max-width: 700px) {
+  .script,
+  .compact .script {
+    padding: 8px 6px 70px;
+  }
+  .page,
+  .compact .page {
+    padding: 14px 10px 50px 34px;
+    border-radius: 0;
+  }
+  .script-beat,
+  .compact .script-beat {
+    margin-left: -32px;
+    padding-left: 32px;
+  }
+  .script-beat::before,
+  .compact .script-beat::before {
+    left: 0;
+  }
+  .script-beat.selected,
+  .compact .script-beat.selected {
+    background: linear-gradient(to right, rgb(var(--accent-rgb) / 0.07), transparent 80%);
+  }
+  .script-beat.bare.selected {
+    background: none;
+  }
+  .pe[data-scene]::before {
+    right: calc(100% + 6px);
+    font-size: 10px;
+  }
+  /* Na úzkém displeji se odsazení zmenší, aby na dialog zbylo místo. */
+  .pe-character {
+    --in: 14ch !important;
+  }
+  .pe-dialogue {
+    --in: 5ch !important;
+  }
+  .pe-paren {
+    --in: 9ch !important;
+  }
+  /* Typ odstavce a poznámka se zobrazí nad odstavcem vpravo, vlevo na ně není místo. */
+  .pe-tools,
+  .compact .pe-tools {
+    right: 6px !important;
+    transform: translateY(-100%);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0 6px;
+    z-index: 5;
+  }
+  .pe-tools select,
+  .compact .pe-tools select {
+    max-width: none;
+    font-size: 12px;
+  }
+  .script-stats {
+    font-size: 11px;
+  }
+  .topbar .save-chip {
+    display: none;
+  }
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Mobil: nástroje v jednom řádku, který se posouvá do stran; nabídka Soubor se otevře přes šířku displeje. */
+@media (max-width: 700px) {
+  .tools {
+    order: 5;
+    flex: 1 0 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tools::-webkit-scrollbar {
+    display: none;
+  }
+  .tools > * {
+    flex: none;
+  }
+  .tools .menu {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    top: 96px;
+    width: auto;
+    max-height: calc(100dvh - 120px);
+    overflow-y: auto;
+  }
+  .script-stats {
+    gap: 4px 6px;
+  }
+}

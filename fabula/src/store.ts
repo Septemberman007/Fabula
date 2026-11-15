@@ -109,7 +109,7 @@ let state: State = {
   multi: [],
   filter: EMPTY_FILTER,
   filterOpen: false,
-  inspector: true,
+  inspector: typeof window === 'undefined' || window.innerWidth > 900,
   colorBy: 'lane',
   highlight: [],
   theme: loadTheme(),
