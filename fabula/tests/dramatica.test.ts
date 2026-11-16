@@ -111,7 +111,8 @@ describe('export z Plot Progression', () => {
   });
 });
 
-import { bundleFromNcp, exportSources, isNcp } from '../src/dramatica';
+import { bundleFromNcp, exportSources, isNcp, linkScene, throughlineOf } from '../src/dramatica';
+import { appScript } from '../src/version';
 
 describe('soubor NCP', () => {
   const ncp = {
@@ -188,17 +189,38 @@ describe('soubor NCP', () => {
   it('postavy jdou do obsazení, storypointy a dynamika do rešerše', () => {
     const p = importDramatica(bundle, 'x');
     expect(p.characters.map((c) => [c.name, c.role, c.aliases])).toEqual([['Eva Horáková', 'main', 'Eva'], ['Zuzana', 'secondary', ''], ['Jan Veselý', 'small', 'Jan']]);
-    expect(p.research.map((r) => `${r.folder}/${r.title}`)).toEqual([
-      'Postavy/Eva Horáková', 'Postavy/Zuzana', 'Dramatica/Logline', 'Dramatica/Dynamika příběhu', 'Dramatica/Storypointy · Příběh', 'Dramatica/Storypointy · Main Character',
+    expect(p.research.map((r) => `${r.folder}/${r.title}`)).toEqual(['Postavy/Eva Horáková', 'Postavy/Zuzana', 'Dramatica/Logline']);
+    expect(p.storyform!.points).toEqual([
+      { throughline: '', name: 'Story Goal', fn: 'Understanding', summary: 'Pochopit domov.', text: '' },
+      { throughline: 'MC', name: 'Problem', fn: 'Inequity', summary: 'Vina.', text: 'Podrobně.' },
     ]);
-    expect(p.research[5].text).toBe('## Problem · Inequity\n\nVina.\n\nPodrobně.');
-    expect(p.research[3].text).toContain('## Story Outcome: Failure\n\nRežim přežije.');
+    expect(p.storyform!.dynamics).toEqual([{ name: 'Story Outcome', value: 'Failure', summary: 'Režim přežije.' }]);
+    expect(p.storyform!.beats.map((x) => x.key)).toEqual(['OS/progression/1', 'OS/signpost/2', 'MC/event/1']);
+  });
+  it('scénu jde přiřadit ke storybeatu: přejde do jeho linie a skupiny', () => {
+    const p = importDramatica(bundle, 'x');
+    const scene = p.order.map((id) => p.beats[id]).find((b) => b?.title === 'Brána')!;
+    linkScene(p, scene.id, 'OS/progression/1');
+    expect(p.lanes.find((l) => l.id === scene.laneId)!.name).toBe('Objective Story');
+    expect(p.groups.find((g) => g.id === scene.groupId)!.title).toBe('OS 1');
+    expect(throughlineOf(p, scene)).toBe('OS');
+    expect(exportSources(p).find((x) => x.id === 'm3')!.storybeat).toBe('o1');
+    linkScene(p, scene.id, null);
+    expect(scene.storybeat).toBeUndefined();
   });
   it('opakovaný import nic nezdvojí a export vrátí pořadí scén', () => {
     const p = importDramatica(bundle, 'x');
     const before = p.order.length;
     expect(mergeDramatica(p, bundle).added).toBe(0);
-    expect([p.order.length, p.characters.length, p.research.length]).toEqual([before, 3, 6]);
+    expect([p.order.length, p.characters.length, p.research.length]).toEqual([before, 3, 3]);
     expect(exportSources(p).map((x) => x.id)).toEqual(['d2', 'm1', 'm2', 'm3', 'd3', 'm9']);
+  });
+});
+
+describe('oznámení o nové verzi', () => {
+  it('pozná soubor aplikace na stránce i ve vlastní adrese', () => {
+    expect(appScript('<script type="module" crossorigin src="./assets/index-8-95dYeL.js"></script>')).toBe('assets/index-8-95dYeL.js');
+    expect(appScript('https://x.github.io/Fabula/assets/index-DYym1zeO.js')).toBe('assets/index-DYym1zeO.js');
+    expect(appScript('<html></html>')).toBeNull();
   });
 });

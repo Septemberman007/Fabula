@@ -11,6 +11,7 @@ import { Research } from './views/Research';
 import { Reports } from './views/Reports';
 import { Backup, PANES_DEFAULT, Panes, loadBackups } from './local';
 import { Splitter } from './Splitter';
+import { loadNewVersion, useNewVersion } from './version';
 import { Bundle, bundleFromNcp, exportDramatica, exportSources, importDramatica, isNcp, mergeDramatica, storybeatsFromCsv, storybeatsFromJson } from './dramatica';
 import { chooseFolder, listSaved, saveNow, setMinutes, turnOff, unlock, useSaveState } from './autosave';
 import { Inspector } from './Inspector';
@@ -284,6 +285,7 @@ export function App() {
   const [backups, setBackups] = useState<Backup[] | null>(null);
   const [saveDlg, setSaveDlg] = useState(false);
   const save = useSaveState();
+  const newVersion = useNewVersion();
   const pane = (patch: Partial<Panes>) => ui({ panes: { ...getState().panes, ...patch } });
   const side = s.view !== 'research' && s.view !== 'reports';
 
@@ -359,8 +361,9 @@ export function App() {
       const beats = storybeatsFromJson(data);
       if (beats.length) return openDramatica(only(beats), f.name);
       actions.loadProject(importCau(data, f.name));
-    } catch {
-      alert('Soubor se nepodařilo načíst. Otevřít lze projekt Fabula (.fabula.json), dokument Causality (.cau), Final Draft (.fdx), scénář Fountain (.fountain) nebo storybeaty z Dramatiky (.csv).');
+    } catch (e) {
+      console.error(e);
+      alert(`Soubor „${f.name}“ se nepodařilo načíst (${e instanceof Error ? e.message : String(e)}). Otevřít lze projekt Fabula (.fabula.json), dokument Causality (.cau), Final Draft (.fdx), scénář Fountain (.fountain) storybeaty z Dramatiky (.csv) nebo její storyform (NCP .json).`);
     }
   };
   const newProject = () => {
@@ -463,12 +466,21 @@ export function App() {
                   Obnovit ze zálohy…<small>průběžné zálohy v tomto prohlížeči</small>
                 </button>
                 <button onClick={run(newProject)}>Nový příběh</button>
+                <small className="menu-version">Verze z {new Date(__BUILD__).toLocaleString('cs', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>
               </div>
             )}
           </div>
           <input ref={file} type="file" accept=".json,.cau,.fdx,.fountain,.txt,.csv,application/json,text/csv" hidden onChange={openFile} />
         </div>
       </header>
+      {newVersion && (
+        <div className="new-version">
+          Je k dispozici nová verze Fabuly. Tvůj příběh zůstane, jak je.
+          <button className="primary" onClick={loadNewVersion}>
+            Načíst novou verzi
+          </button>
+        </div>
+      )}
       {s.saveError && <div className="save-error">Projekt se nepodařilo uložit do prohlížeče ({s.saveError}). Ulož ho přes Soubor → Uložit projekt, ať o práci nepřijdeš.</div>}
       {saveDlg && <AutosaveDialog onClose={() => setSaveDlg(false)} />}
       {backups && (

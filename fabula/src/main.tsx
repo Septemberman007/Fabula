@@ -4,6 +4,9 @@ import { App } from './App';
 import { boot } from './store';
 import './styles.css';
 
+// Po načtení nové verze zůstává v adrese pomocný parametr; uklidíme ho.
+if (/[?&](v|fresh)=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash);
+
 // Uložený projekt se čte asynchronně, proto aplikaci vykreslíme až po jeho načtení.
 void boot().then(() =>
   createRoot(document.getElementById('root')!).render(

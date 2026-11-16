@@ -13,7 +13,7 @@ import { normalize } from './io';
 import { titleCase, unknownSpeakers } from './text';
 
 export type View = 'board' | 'script' | 'timeline' | 'all' | 'reports' | 'research';
-export type Tab = 'detail' | 'cast' | 'issues';
+export type Tab = 'detail' | 'cast' | 'issues' | 'storyform';
 export type ColorBy = 'lane' | 'tag' | 'status';
 
 export interface State {

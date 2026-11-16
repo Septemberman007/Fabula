@@ -188,6 +188,15 @@ export interface Beat {
   dramatica?: DramaticaRef;
   /** Moment nebo Story Driver z Dramatiky, ze kterého beat vznikl. */
   source?: DramaticaSource;
+  /** Storybeat, který tato scéna vypráví (klíč „OS/event/3“); u karty storybeatu samotné se nevyplňuje. */
+  storybeat?: string;
+}
+
+/** Storyform z Dramatiky: to, co se v čase nemění, a seznam storybeatů, ke kterým jde přiřadit scénu. */
+export interface Storyform {
+  points: { throughline: Throughline | ''; name: string; fn: string; summary: string; text: string }[];
+  dynamics: { name: string; value: string; summary: string }[];
+  beats: { key: string; uuid?: string; throughline: Throughline; scope: StorybeatScope; sequence: number; fn: string; summary: string }[];
 }
 
 export interface DramaticaSource {
@@ -249,6 +258,7 @@ export interface Project {
   targetPages: number;
   /** Formát papíru pro stránkování a tisk. */
   paper: Paper;
+  storyform?: Storyform;
 }
 
 export type Paper = 'a4' | 'letter';

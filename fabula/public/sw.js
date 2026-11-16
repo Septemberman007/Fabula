@@ -5,7 +5,7 @@
  * síť (aby se hned ukázala nejnovější verze) a když není dostupná, použije se uložená kopie.
  * Příběhy tudy nejdou: ty jsou uložené v prohlížeči a server je nikdy nevidí.
  */
-const CACHE = 'fabula-v2';
+const CACHE = 'fabula-v3';
 const SCOPE = self.registration.scope;
 const SHELL = ['manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 const NETWORK_TIMEOUT = 4000;
@@ -74,5 +74,7 @@ async function file(request) {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET' || !request.url.startsWith(SCOPE)) return;
+  // Dotaz na nejnovější verzi (viz src/version.ts) musí jít vždy na server.
+  if (new URL(request.url).searchParams.has('fresh')) return;
   event.respondWith(request.mode === 'navigate' ? page(event) : file(request));
 });

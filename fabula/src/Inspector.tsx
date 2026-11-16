@@ -3,6 +3,7 @@ import { State, Tab, actions, ui } from './store';
 import { Issue } from './evaluate';
 import { detectedCharacters, unknownSpeakers } from './text';
 import { eighths, pageRange, paginate } from './paginate';
+import { THROUGHLINES, linkScene, storybeatLabel, throughlineOf } from './dramatica';
 
 const SEVERITY_LABEL = { error: 'Chyba', warn: 'Varování', tip: 'Tip' } as const;
 
@@ -13,21 +14,78 @@ export function Inspector({ s, issues }: { s: State; issues: Issue[] }) {
     ['cast', 'Obsazení'],
     ['issues', `Problémy${issues.length ? ` (${issues.length})` : ''}`],
   ];
+  const sf = s.project.storyform;
+  if (sf && sf.points.length + sf.dynamics.length > 0) tabs.push(['storyform', 'Storyform']);
+  const tab = tabs.some(([id]) => id === s.tab) ? s.tab : 'detail';
   return (
     <aside className="inspector">
       <nav className="tabs">
         {tabs.map(([id, label]) => (
-          <button key={id} className={`${s.tab === id ? 'on' : ''}${id === 'issues' && errors ? ' has-error' : ''}`} onClick={() => ui({ tab: id })}>
+          <button key={id} className={`${tab === id ? 'on' : ''}${id === 'issues' && errors ? ' has-error' : ''}`} onClick={() => ui({ tab: id })}>
             {label}
           </button>
         ))}
       </nav>
       <div className="insp-body">
-        {s.tab === 'detail' && <Detail s={s} issues={issues} />}
-        {s.tab === 'cast' && <Cast s={s} />}
-        {s.tab === 'issues' && <Issues s={s} issues={issues} />}
+        {tab === 'detail' && <Detail s={s} issues={issues} />}
+        {tab === 'cast' && <Cast s={s} />}
+        {tab === 'issues' && <Issues s={s} issues={issues} />}
+        {tab === 'storyform' && <StoryformPanel s={s} />}
       </div>
     </aside>
+  );
+}
+
+/** Storyform z Dramatiky po ruce při psaní: dynamika, storypointy příběhu a čtyř throughlines. */
+function StoryformPanel({ s }: { s: State }) {
+  const p = s.project;
+  const sf = p.storyform!;
+  const b = s.selected ? p.beats[s.selected] : null;
+  const current = b ? throughlineOf(p, b) : null;
+  const point = (x: (typeof sf.points)[number], i: number) => (
+    <div className="sf-point" key={i}>
+      <b>{x.name}</b>
+      {x.fn && <span>{x.fn}</span>}
+      {x.summary && <p>{x.summary}</p>}
+      {x.text && x.text !== x.summary && (
+        <details>
+          <summary>Storytelling</summary>
+          <p>{x.text}</p>
+        </details>
+      )}
+    </div>
+  );
+  const story = sf.points.filter((x) => !x.throughline);
+  return (
+    <div className="storyform">
+      {sf.dynamics.length > 0 && (
+        <div className="sf-dynamics">
+          {sf.dynamics.map((d) => (
+            <span key={d.name} title={d.summary || undefined}>
+              {d.name}: <b>{d.value}</b>
+            </span>
+          ))}
+        </div>
+      )}
+      {story.length > 0 && (
+        <details open={!current}>
+          <summary>Příběh</summary>
+          {story.map(point)}
+        </details>
+      )}
+      {THROUGHLINES.map((t) => {
+        const list = sf.points.filter((x) => x.throughline === t.key);
+        return (
+          list.length > 0 && (
+            // Klíč podle vybraného beatu: po změně výběru se rozbalí throughline, ke které beat patří.
+            <details key={`${t.key}${current === t.key}`} open={current === t.key} className={current === t.key ? 'current' : ''} style={{ ['--lane' as string]: t.color }}>
+              <summary>{t.name}</summary>
+              {list.map(point)}
+            </details>
+          )
+        );
+      })}
+    </div>
   );
 }
 
@@ -120,6 +178,25 @@ function Detail({ s, issues }: { s: State; issues: Issue[] }) {
             placeholder="Storytelling: jak se storybeat v příběhu odehraje"
             onChange={(e) => actions.updateBeat(id, { dramatica: { ...b.dramatica!, storytelling: e.target.value } }, 'storytelling')}
           />
+        </label>
+      )}
+      {!b.dramatica && (p.storyform?.beats.length ?? 0) > 0 && (
+        <label>
+          Vypráví storybeat
+          <select value={b.storybeat ?? ''} onChange={(e) => actions.editScript((draft) => linkScene(draft, id, e.target.value || null))} title="Scéna se přesune do linie a skupiny svého storybeatu">
+            <option value="">— nepřiřazeno —</option>
+            {THROUGHLINES.map((t) => (
+              <optgroup key={t.key} label={t.name}>
+                {p.storyform!.beats
+                  .filter((x) => x.throughline === t.key)
+                  .map((x) => (
+                    <option key={x.key} value={x.key}>
+                      {storybeatLabel(x)}
+                    </option>
+                  ))}
+              </optgroup>
+            ))}
+          </select>
         </label>
       )}
       <div className="row">
