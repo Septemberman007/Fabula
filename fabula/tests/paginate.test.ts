@@ -156,3 +156,11 @@ describe('délka v osminách podle papíru', () => {
     expect(eighths(54, PAPERS.a4.lines)).toBe('7/8');
   });
 });
+
+describe('zalamování za spojovníkem', () => {
+  it('smí zalomit za spojovníkem uvnitř slova, ne před číslicí ani u pomlčky', () => {
+    expect(wrapText('aaaa not-so-oily', 12)).toEqual(['aaaa not-so-', 'oily']);
+    expect(wrapText('aaaaaa T-1000 x', 9)).toEqual(['aaaaaa', 'T-1000 x']);
+    expect(wrapText('aaaaaa ab--cd', 10)).toEqual(['aaaaaa', 'ab--cd']);
+  });
+});

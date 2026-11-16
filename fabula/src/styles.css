@@ -652,6 +652,7 @@ g.dim {
   cursor: pointer;
 }
 .tl-col:hover {
+  background: rgb(128 128 128 / 0.06);
   background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
 .tl-col.selected {
@@ -1483,6 +1484,7 @@ kbd {
   opacity: 0.18;
 }
 .tl-col.out {
+  background: rgb(128 128 128 / 0.35);
   background: color-mix(in srgb, var(--paper) 82%, transparent);
   z-index: 6;
 }
@@ -2507,6 +2509,7 @@ button.pressed {
 }
 .save-chip.on {
   color: var(--ok);
+  border-color: var(--ok);
   border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
 }
 .save-chip.locked,
@@ -2631,6 +2634,7 @@ button.pressed {
   cursor: pointer;
 }
 .tl-hit:hover {
+  background: rgb(128 128 128 / 0.05);
   background: color-mix(in srgb, var(--ink) 3%, transparent);
 }
 .tl-mark {
@@ -2901,6 +2905,7 @@ button.pressed {
   left: calc(-1 * var(--in));
   width: 60.5ch;
   top: -0.62em;
+  border-top: 1px dashed var(--accent);
   border-top: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--line));
   font: 10px/1.5 var(--sans);
   letter-spacing: 0.04em;

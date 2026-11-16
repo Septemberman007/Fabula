@@ -6,7 +6,7 @@ const words = (t: string) => t.match(/\S+/g)?.length ?? 0;
 const up = (s: string) => s.toLocaleUpperCase('cs');
 
 /** Kmeny českých a anglických vulgarismů; počítají se slova, která jimi začínají. */
-const PROFANITY = /(?<![\p{L}])(kurv|kurev|píč|pič|prdel|hovn|hoven|sr[aá][tč]|sraní|vysr|posr|nasr|zasr|debil|zmrd|mrd|kokot|čur[aá]k|čůr[aá]k|hajzl|šuk|jeb|do prdele|fuck|shit|bitch|asshole|bastard|damn|cunt|dick)\p{L}*/giu;
+const PROFANITY = /(?:^|[^\p{L}])(kurv|kurev|píč|pič|prdel|hovn|hoven|sr[aá][tč]|sraní|vysr|posr|nasr|zasr|debil|zmrd|mrd|kokot|čur[aá]k|čůr[aá]k|hajzl|šuk|jeb|do prdele|fuck|shit|bitch|asshole|bastard|damn|cunt|dick)\p{L}*/giu;
 export const profanities = (text: string) => text.match(PROFANITY)?.length ?? 0;
 
 export interface Heading {

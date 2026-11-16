@@ -1,6 +1,7 @@
 import { CSSProperties, ClipboardEvent, Fragment, KeyboardEvent, ReactNode, RefObject, memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Beat, ID, PARA_LABEL, Para, ParaType, Project, Revision } from './model';
 import { actions, getState, ui, useSel } from './store';
+import { tint } from './colors';
 import { SCENE_RE, TYPE_CYCLE, speaker, speakerCharacter } from './text';
 import { Caret, Pos, Seg, copyAcross, deleteAcross, deleteRange, detectScene, editField, insertText, paste, segText, splitPara } from './edit';
 
@@ -141,11 +142,11 @@ export const SegText = memo(function SegText({ seg, beatId, paraId, text, classN
     if (off !== null && !pendingCaret) setCaret(el, Math.min(off, text.length));
   });
   const [after, splitPage] = split ? split.split(':') : [];
-  const shadows = [rev && `inset -3px 0 0 ${rev}`, mark && `-6px 0 0 color-mix(in srgb, ${mark} 22%, transparent)`].filter(Boolean).join(', ');
+  const shadows = [rev && `inset -3px 0 0 ${rev}`, mark && `-6px 0 0 ${tint(mark, 0.22)}`].filter(Boolean).join(', ');
   const style = {
     ...(indent ? { '--in': indent } : null),
     ...(after ? { '--split': after } : null),
-    ...(mark ? { background: `color-mix(in srgb, ${mark} 22%, transparent)` } : null),
+    ...(mark ? { background: tint(mark, 0.22) } : null),
     ...(shadows ? { boxShadow: shadows } : null),
   } as CSSProperties;
   return (

@@ -12,3 +12,16 @@ export function beatColor(p: Project, b: Beat, mode: ColorBy): string {
   if (mode === 'tag') return p.tags.find((t) => b.tagIds.includes(t.id))?.color ?? NEUTRAL;
   return p.lanes.find((l) => l.id === b.laneId)?.color ?? NEUTRAL;
 }
+
+/**
+ * Barva zprůhledněná na daný podíl (0–1). Píše se jako osmimístný hex, protože funkci color-mix
+ * starší prohlížeče (Safari do verze 16.1) neznají.
+ */
+export function tint(color: string, share: number): string {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
+  if (!hex) return `color-mix(in srgb, ${color} ${Math.round(share * 100)}%, transparent)`;
+  const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex;
+  return `#${full}${Math.round(share * 255).toString(16).padStart(2, '0')}`;
+}
+/** Plocha lehce podbarvená danou barvou. */
+export const tinted = (color: string, share: number) => `linear-gradient(${tint(color, share)}, ${tint(color, share)}), var(--surface)`;

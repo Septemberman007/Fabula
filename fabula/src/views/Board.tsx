@@ -1,7 +1,7 @@
 import { DragEvent, MouseEvent, PointerEvent, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { BoardNote, ID, NOTE_COLORS, Project, STATUS_LABEL, beatName, beatNumber, groupBeats } from '../model';
 import { ColorBy, State, actions, setZoom, toggleZoomLink, ui } from '../store';
-import { COLOR_BY_LABEL, beatColor } from '../colors';
+import { COLOR_BY_LABEL, beatColor, tinted } from '../colors';
 import { Issue, brokenLinks } from '../evaluate';
 import { beatCharacters } from '../text';
 import { BeatEditor } from '../BeatEditor';
@@ -570,7 +570,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
                   <div
                     key={g.id}
                     className={`card group-card${mini ? ' mini' : ''}${anyPicked ? ' selected' : ''}${matches && !ids.some((id) => matches.has(id)) ? ' out' : ''}`}
-                    style={{ left: box.left, top: box.top, width: cardW, height: box.bottom - box.top, borderColor: g.color, background: `color-mix(in srgb, ${g.color} 9%, var(--surface))` }}
+                    style={{ left: box.left, top: box.top, width: cardW, height: box.bottom - box.top, borderColor: g.color, background: tinted(g.color, 0.09) }}
                     onClick={(e) => (e.stopPropagation(), ui({ multi: ids.length > 1 ? ids : [], selected: ids[0], tab: 'detail' }))}
                     onDoubleClick={(e) => (e.stopPropagation(), actions.updateGroup(g.id, { collapsed: false }))}
                     title="Sbalená sekvence – dvojklikem rozbalíš"
@@ -622,7 +622,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
                       width: cardW,
                       height: CARD_H,
                       borderTopColor: color,
-                      background: mini ? color : s.colorBy === 'lane' ? undefined : `color-mix(in srgb, ${color} 13%, var(--surface))`,
+                      background: mini ? color : s.colorBy === 'lane' ? undefined : tinted(color, 0.13),
                     }}
                     draggable={!wire}
                     onDragStart={(e) => {

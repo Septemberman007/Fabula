@@ -53,7 +53,8 @@ export function wrapText(text: string, width: number): string[] {
         continue;
       }
       // Části slova, mezi kterými se smí zalomit (za spojovníkem mezi písmeny).
-      const parts = token.split(/(?<=[\p{L}\d]-)(?=\p{L})/u);
+      // (Bez „lookbehind“: ten starší Safari neumí a kvůli němu by se nenačetla celá aplikace.)
+      const parts = token.match(/.*?[\p{L}\d]-(?=\p{L})|.+/gu) ?? [token];
       parts.forEach((part, i) => {
         let w = part;
         const glue = i === 0 ? space : '';
