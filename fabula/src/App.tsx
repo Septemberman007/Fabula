@@ -11,6 +11,7 @@ import { Research } from './views/Research';
 import { Reports } from './views/Reports';
 import { Backup, PANES_DEFAULT, Panes, loadBackups } from './local';
 import { Splitter } from './Splitter';
+import { Storybeat, exportDramatica, importDramatica, mergeDramatica, storybeatsFromCsv, storybeatsFromJson } from './dramatica';
 import { chooseFolder, listSaved, saveNow, setMinutes, turnOff, unlock, useSaveState } from './autosave';
 import { Inspector } from './Inspector';
 
@@ -326,6 +327,17 @@ export function App() {
     setTimeout(() => window.print(), 150);
   };
 
+  /** Storybeaty z Dramatiky: do příběhu, který z ní už vznikl, se jen doplní; jinak z nich vznikne nový příběh. */
+  const openDramatica = (beats: Storybeat[], fileName: string) => {
+    if (!beats.length) return alert('V souboru jsem nenašel žádné storybeaty. Potřebuju sloupce s throughline, úrovní (Signpost, Progression, Event) a pořadím.');
+    if (Object.values(p.beats).some((b) => b.dramatica)) {
+      let res = { added: 0, updated: 0 };
+      actions.editScript((draft) => void (res = mergeDramatica(draft, beats)));
+      alert(`Z Dramatiky doplněno: ${res.added} nových beatů, ${res.updated} změněných. Text scénáře zůstal, jak byl; krok lze vrátit přes Zpět.`);
+    } else actions.loadProject(importDramatica(beats, fileName.replace(/\.(csv|json)$/i, '')));
+    ui({ view: 'board' });
+  };
+
   /** Otevře projekt Fabula, dokument Causality (.cau), Final Draft (.fdx) nebo scénář Fountain. */
   const openFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -334,12 +346,17 @@ export function App() {
     try {
       const text = await f.text();
       const ext = f.name.split('.').pop()?.toLowerCase();
+      if (ext === 'csv') return openDramatica(storybeatsFromCsv(text), f.name);
       if (ext === 'fdx' || text.trimStart().startsWith('<')) return actions.loadProject(importFdx(text, f.name));
       if (ext === 'fountain' || ext === 'txt') return actions.loadProject(importFountain(text, f.name));
       const data = JSON.parse(text);
-      actions.loadProject(normalize(data) ?? importCau(data, f.name));
+      const project = normalize(data);
+      if (project) return actions.loadProject(project);
+      const beats = storybeatsFromJson(data);
+      if (beats.length) return openDramatica(beats, f.name);
+      actions.loadProject(importCau(data, f.name));
     } catch {
-      alert('Soubor se nepodařilo načíst. Otevřít lze projekt Fabula (.fabula.json), dokument Causality (.cau), Final Draft (.fdx) nebo scénář Fountain (.fountain).');
+      alert('Soubor se nepodařilo načíst. Otevřít lze projekt Fabula (.fabula.json), dokument Causality (.cau), Final Draft (.fdx), scénář Fountain (.fountain) nebo storybeaty z Dramatiky (.csv).');
     }
   };
   const newProject = () => {
@@ -413,7 +430,7 @@ export function App() {
             {menu && (
               <div className="menu" onMouseLeave={() => setMenu(false)}>
                 <button onClick={run(() => file.current?.click())}>
-                  Otevřít…<small>Fabula, Causality (.cau), Final Draft (.fdx), Fountain</small>
+                  Otevřít…<small>Fabula, Causality (.cau), Final Draft (.fdx), Fountain, Dramatica (.csv)</small>
                 </button>
                 <button onClick={run(() => download(`${base}.fabula.json`, JSON.stringify(p, null, 2), 'application/json'))}>Uložit projekt</button>
                 <button onClick={run(() => setSaveDlg(true))}>
@@ -429,6 +446,11 @@ export function App() {
                 <button onClick={run(() => download(`${base} – osnova.txt`, exportOutline(p)))}>
                   Export osnovy (text)<small>beaty s příčinami slovy</small>
                 </button>
+                {Object.values(p.beats).some((b) => b.dramatica) && (
+                  <button onClick={run(() => download(`${base} – dramatica.json`, JSON.stringify({ storybeats: exportDramatica(p) }, null, 2), 'application/json'))}>
+                    Export pro Dramaticu (.json)<small>synopse a Storytelling beatů k zápisu zpět</small>
+                  </button>
+                )}
                 <button onClick={run(print)}>
                   Tisk / PDF scénáře<small>v dialogu tisku zvol „Uložit jako PDF“</small>
                 </button>
@@ -440,7 +462,7 @@ export function App() {
               </div>
             )}
           </div>
-          <input ref={file} type="file" accept=".json,.cau,.fdx,.fountain,.txt,application/json" hidden onChange={openFile} />
+          <input ref={file} type="file" accept=".json,.cau,.fdx,.fountain,.txt,.csv,application/json,text/csv" hidden onChange={openFile} />
         </div>
       </header>
       {s.saveError && <div className="save-error">Projekt se nepodařilo uložit do prohlížeče ({s.saveError}). Ulož ho přes Soubor → Uložit projekt, ať o práci nepřijdeš.</div>}

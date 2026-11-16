@@ -184,6 +184,24 @@ export interface Beat {
   /** 0–10 */
   tension: number;
   status: BeatStatus;
+  /** Storybeat z Dramatiky, ze kterého beat vznikl. */
+  dramatica?: DramaticaRef;
+}
+
+export type Throughline = 'OS' | 'MC' | 'IC' | 'RS';
+export type StorybeatScope = 'signpost' | 'progression' | 'event';
+
+/** Odkaz na storybeat v Dramatice: podle něj se beat při dalším importu pozná a jde poslat zpět. */
+export interface DramaticaRef {
+  uuid?: string;
+  throughline: Throughline;
+  scope: StorybeatScope;
+  /** Pořadí v rámci throughline (Signpost 1–4, Progression 1–16, Event 1–64). */
+  sequence: number;
+  /** Narrative Function, např. „Instinct“. */
+  fn: string;
+  /** Storytelling: delší popis, jak se storybeat v příběhu odehraje. */
+  storytelling: string;
 }
 
 /** Předěl ve struktuře (dějství, kapitola…). */
