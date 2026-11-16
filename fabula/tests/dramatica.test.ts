@@ -110,3 +110,95 @@ describe('export z Plot Progression', () => {
     expect(p.beats[p.order[9]].dramatica).toMatchObject({ uuid: 'e51', storytelling: 'Text události\n\nEVA Ne.' });
   });
 });
+
+import { bundleFromNcp, exportSources, isNcp } from '../src/dramatica';
+
+describe('soubor NCP', () => {
+  const ncp = {
+    story: { title: 'Příběh' },
+    payloads: {
+      'dramatica-project:': {
+        stories: [
+          {
+            moments: [
+              { id: 'm0', act: 1, order: 1, summary: 'Untitled', synopsis: '', setting: '', timing: '', imperatives: '', storybeats: [] },
+              { id: 'm2', act: 1, order: 3, summary: 'V sanitce', synopsis: 'Jedou mlčky.', setting: 'Sanitka', timing: 'Ráno', imperatives: '', storybeats: [{ storybeat_id: 'e1' }] },
+              { id: 'm1', act: 1, order: 2, summary: 'Krajina', synopsis: 'Mlha.', setting: '', timing: '', imperatives: '', storybeats: [] },
+              { id: 'm3', act: 1, order: 4, summary: 'Brána', synopsis: 'Projedou.', setting: '', timing: '', imperatives: '', storybeats: [] },
+              { id: 'm9', act: 3, order: 1, summary: 'Konec', synopsis: 'Terasa.', setting: '', timing: '', imperatives: '', storybeats: [] },
+              { id: 't', act: 2, order: 1, summary: 'Turning Up the Pressure', synopsis: '', setting: '', timing: '', imperatives: '', storybeats: [{ storybeat_id: 's2' }] },
+            ],
+          },
+        ],
+        storyforms: [
+          {
+            narrative: {
+              storytelling: { overviews: { 0: { label: 'Logline', summary: '', storytelling: 'Bývalá zapisovatelka…' } } },
+              subtext: {
+                storybeats: [
+                  { id: 'e1', throughline: 'Main Character', scope: 'event', signpost: 1, sequence: 1, narrative_function: 'Knowledge', summary: 'Sanitka', storytelling: 'Dlouze' },
+                  { id: 'o1', throughline: 'Objective Story', scope: 'progression', signpost: 1, sequence: 1, narrative_function: 'Instinct', summary: '', storytelling: '' },
+                  { id: 's2', throughline: 'Objective Story', scope: 'signpost', signpost: 2, sequence: 1, narrative_function: 'Doing', summary: '', storytelling: '' },
+                ],
+                dynamics: [
+                  { id: 'd1', dynamic: 'story_outcome', vector: 'failure', summary: 'Režim přežije.', storytelling: '' },
+                  { id: 'd2', dynamic: 'initial_story_driver', vector: 'Action', summary: 'Uklízečka najde muže.', storytelling: 'Nad ránem…' },
+                  { id: 'd3', dynamic: 'midpoint_story_driver', vector: 'Action', summary: 'Odhalení.', storytelling: '' },
+                  { id: 'd4', dynamic: 'fourth_story_driver', vector: 'Action', summary: '', storytelling: '' },
+                ],
+                storypoints: [
+                  { id: 'p1', appreciation: 'Story Goal', narrative_function: 'Understanding', summary: 'Pochopit domov.', storytelling: '' },
+                  { id: 'p2', throughline: 'Main Character', appreciation: 'Main Character Problem', narrative_function: 'Inequity', summary: 'Vina.', storytelling: 'Podrobně.' },
+                ],
+                players: [
+                  { id: 'x', name: 'Eva Horáková', role: 'Protagonista, MC', bio: 'Zapisovatelka.', visual: 'drobná', motivations: [{ narrative_function: 'Pursuit', illustration: 'jde za pravdou', storytelling: '' }] },
+                  { id: 'y', name: 'Zuzana', role: 'Contagonist' },
+                  { id: 'z', name: 'Jan Veselý', role: '' },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    },
+  };
+  const bundle = bundleFromNcp(ncp);
+  it('pozná formát a vynechá prázdné předpřipravené Momenty', () => {
+    expect(isNcp(ncp)).toBe(true);
+    expect(isNcp({ format: 2 })).toBe(false);
+    expect(bundle.title).toBe('Příběh');
+    expect(bundle.moments.map((m) => m.id)).toEqual(['m2', 'm1', 'm3', 'm9']);
+    expect(bundle.moments[0]).toMatchObject({ storybeat: 'MC/event/1', text: 'Místo: Sanitka\nČas: Ráno' });
+    expect(bundle.drivers.map((d) => d.index)).toEqual([0, 2]);
+  });
+  it('scény jdou v pořadí Momentů, Drivery na hranice Signpostů', () => {
+    const p = importDramatica(bundle, 'x');
+    expect(titles(p)).toEqual([
+      '[Signpost 1]', 'Initial Story Driver', 'Krajina', 'Instinct', 'V sanitce', 'Brána',
+      '[Signpost 2]', 'Doing', 'Midpoint Story Driver',
+      '[Signpost 3]',
+      '[Signpost 4]', 'Konec',
+    ]);
+    const lane = (i: number) => p.lanes.find((l) => l.id === p.beats[p.order[i]].laneId)!.name;
+    expect([lane(1), lane(2), lane(4), lane(5)]).toEqual(['Objective Story', 'Scény', 'Main Character', 'Scény']);
+    // Jediný Moment storybeatu splyne s jeho kartou: název a synopse scény, Storytelling storybeatu.
+    expect(p.beats[p.order[4]]).toMatchObject({ synopsis: 'Jedou mlčky.', dramatica: { uuid: 'e1', storytelling: 'Dlouze' }, source: { id: 'm2', kind: 'moment' } });
+    expect(p.beats[p.order[1]].source).toMatchObject({ kind: 'driver', text: 'Nad ránem…' });
+  });
+  it('postavy jdou do obsazení, storypointy a dynamika do rešerše', () => {
+    const p = importDramatica(bundle, 'x');
+    expect(p.characters.map((c) => [c.name, c.role, c.aliases])).toEqual([['Eva Horáková', 'main', 'Eva'], ['Zuzana', 'secondary', ''], ['Jan Veselý', 'small', 'Jan']]);
+    expect(p.research.map((r) => `${r.folder}/${r.title}`)).toEqual([
+      'Postavy/Eva Horáková', 'Postavy/Zuzana', 'Dramatica/Logline', 'Dramatica/Dynamika příběhu', 'Dramatica/Storypointy · Příběh', 'Dramatica/Storypointy · Main Character',
+    ]);
+    expect(p.research[5].text).toBe('## Problem · Inequity\n\nVina.\n\nPodrobně.');
+    expect(p.research[3].text).toContain('## Story Outcome: Failure\n\nRežim přežije.');
+  });
+  it('opakovaný import nic nezdvojí a export vrátí pořadí scén', () => {
+    const p = importDramatica(bundle, 'x');
+    const before = p.order.length;
+    expect(mergeDramatica(p, bundle).added).toBe(0);
+    expect([p.order.length, p.characters.length, p.research.length]).toEqual([before, 3, 6]);
+    expect(exportSources(p).map((x) => x.id)).toEqual(['d2', 'm1', 'm2', 'm3', 'd3', 'm9']);
+  });
+});

@@ -99,6 +99,17 @@ function Detail({ s, issues }: { s: State; issues: Issue[] }) {
         Synopse
         <textarea rows={3} value={b.synopsis} onChange={(e) => actions.updateBeat(id, { synopsis: e.target.value }, 'synopsis')} />
       </label>
+      {b.source && (
+        <label>
+          Dramatica · {b.source.kind === 'moment' ? 'Moment' : 'Story Driver'}
+          <textarea
+            rows={b.source.kind === 'moment' ? 3 : 6}
+            value={b.source.text}
+            placeholder={b.source.kind === 'moment' ? 'Místo, čas a pokyny ke scéně' : 'Storytelling: jak se zlom v příběhu odehraje'}
+            onChange={(e) => actions.updateBeat(id, { source: { ...b.source!, text: e.target.value } }, 'source')}
+          />
+        </label>
+      )}
       {b.dramatica && (
         <label>
           Dramatica · {b.dramatica.throughline} {b.dramatica.scope === 'signpost' ? 'Signpost' : b.dramatica.scope === 'progression' ? 'Progression' : 'Event'} {b.dramatica.sequence}

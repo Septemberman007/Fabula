@@ -11,7 +11,7 @@ import { Research } from './views/Research';
 import { Reports } from './views/Reports';
 import { Backup, PANES_DEFAULT, Panes, loadBackups } from './local';
 import { Splitter } from './Splitter';
-import { Storybeat, exportDramatica, importDramatica, mergeDramatica, storybeatsFromCsv, storybeatsFromJson } from './dramatica';
+import { Bundle, bundleFromNcp, exportDramatica, exportSources, importDramatica, isNcp, mergeDramatica, storybeatsFromCsv, storybeatsFromJson } from './dramatica';
 import { chooseFolder, listSaved, saveNow, setMinutes, turnOff, unlock, useSaveState } from './autosave';
 import { Inspector } from './Inspector';
 
@@ -327,14 +327,17 @@ export function App() {
     setTimeout(() => window.print(), 150);
   };
 
-  /** Storybeaty z Dramatiky: do příběhu, který z ní už vznikl, se jen doplní; jinak z nich vznikne nový příběh. */
-  const openDramatica = (beats: Storybeat[], fileName: string) => {
-    if (!beats.length) return alert('V souboru jsem nenašel žádné storybeaty. Potřebuju sloupce s throughline, úrovní (Signpost, Progression, Event) a pořadím.');
-    if (Object.values(p.beats).some((b) => b.dramatica)) {
+  const only = (storybeats: Bundle['storybeats']): Bundle => ({ storybeats, moments: [], drivers: [], players: [], notes: [] });
+  const fromDramatica = (b: { dramatica?: unknown; source?: unknown }) => !!(b.dramatica || b.source);
+  /** Podklady z Dramatiky: do příběhu, který z ní už vznikl, se jen doplní; jinak z nich vznikne nový příběh. */
+  const openDramatica = (bundle: Bundle, fileName: string) => {
+    if (!bundle.storybeats.length && !bundle.moments.length)
+      return alert('V souboru jsem nenašel žádné storybeaty. Potřebuju sloupce s throughline, úrovní (Signpost, Progression, Event) a pořadím.');
+    if (Object.values(p.beats).some(fromDramatica)) {
       let res = { added: 0, updated: 0 };
-      actions.editScript((draft) => void (res = mergeDramatica(draft, beats)));
+      actions.editScript((draft) => void (res = mergeDramatica(draft, bundle)));
       alert(`Z Dramatiky doplněno: ${res.added} nových beatů, ${res.updated} změněných. Text scénáře zůstal, jak byl; krok lze vrátit přes Zpět.`);
-    } else actions.loadProject(importDramatica(beats, fileName.replace(/\.(csv|json)$/i, '')));
+    } else actions.loadProject(importDramatica(bundle, bundle.title ?? fileName.replace(/\.(csv|json)$/i, '').replace(/-ncp$/i, '')));
     ui({ view: 'board' });
   };
 
@@ -346,14 +349,15 @@ export function App() {
     try {
       const text = await f.text();
       const ext = f.name.split('.').pop()?.toLowerCase();
-      if (ext === 'csv') return openDramatica(storybeatsFromCsv(text), f.name);
+      if (ext === 'csv') return openDramatica(only(storybeatsFromCsv(text)), f.name);
       if (ext === 'fdx' || text.trimStart().startsWith('<')) return actions.loadProject(importFdx(text, f.name));
       if (ext === 'fountain' || ext === 'txt') return actions.loadProject(importFountain(text, f.name));
       const data = JSON.parse(text);
       const project = normalize(data);
       if (project) return actions.loadProject(project);
+      if (isNcp(data)) return openDramatica(bundleFromNcp(data), f.name);
       const beats = storybeatsFromJson(data);
-      if (beats.length) return openDramatica(beats, f.name);
+      if (beats.length) return openDramatica(only(beats), f.name);
       actions.loadProject(importCau(data, f.name));
     } catch {
       alert('Soubor se nepodařilo načíst. Otevřít lze projekt Fabula (.fabula.json), dokument Causality (.cau), Final Draft (.fdx), scénář Fountain (.fountain) nebo storybeaty z Dramatiky (.csv).');
@@ -430,7 +434,7 @@ export function App() {
             {menu && (
               <div className="menu" onMouseLeave={() => setMenu(false)}>
                 <button onClick={run(() => file.current?.click())}>
-                  Otevřít…<small>Fabula, Causality (.cau), Final Draft (.fdx), Fountain, Dramatica (.csv)</small>
+                  Otevřít…<small>Fabula, Causality (.cau), Final Draft (.fdx), Fountain, Dramatica (.csv, NCP .json)</small>
                 </button>
                 <button onClick={run(() => download(`${base}.fabula.json`, JSON.stringify(p, null, 2), 'application/json'))}>Uložit projekt</button>
                 <button onClick={run(() => setSaveDlg(true))}>
@@ -446,9 +450,9 @@ export function App() {
                 <button onClick={run(() => download(`${base} – osnova.txt`, exportOutline(p)))}>
                   Export osnovy (text)<small>beaty s příčinami slovy</small>
                 </button>
-                {Object.values(p.beats).some((b) => b.dramatica) && (
-                  <button onClick={run(() => download(`${base} – dramatica.json`, JSON.stringify({ storybeats: exportDramatica(p) }, null, 2), 'application/json'))}>
-                    Export pro Dramaticu (.json)<small>synopse a Storytelling beatů k zápisu zpět</small>
+                {Object.values(p.beats).some(fromDramatica) && (
+                  <button onClick={run(() => download(`${base} – dramatica.json`, JSON.stringify({ storybeats: exportDramatica(p), scenes: exportSources(p) }, null, 2), 'application/json'))}>
+                    Export pro Dramaticu (.json)<small>synopse, Storytelling a pořadí scén k zápisu zpět</small>
                   </button>
                 )}
                 <button onClick={run(print)}>

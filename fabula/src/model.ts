@@ -186,6 +186,15 @@ export interface Beat {
   status: BeatStatus;
   /** Storybeat z Dramatiky, ze kterého beat vznikl. */
   dramatica?: DramaticaRef;
+  /** Moment nebo Story Driver z Dramatiky, ze kterého beat vznikl. */
+  source?: DramaticaSource;
+}
+
+export interface DramaticaSource {
+  id: string;
+  kind: 'moment' | 'driver';
+  /** Moment: místo, čas a pokyny ke scéně. Story Driver: jeho Storytelling. */
+  text: string;
 }
 
 export type Throughline = 'OS' | 'MC' | 'IC' | 'RS';
