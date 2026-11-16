@@ -9,7 +9,8 @@ import { Script } from './views/Script';
 import { Timeline } from './views/Timeline';
 import { Research } from './views/Research';
 import { Reports } from './views/Reports';
-import { Backup, loadBackups } from './local';
+import { Backup, PANES_DEFAULT, Panes, loadBackups } from './local';
+import { Splitter } from './Splitter';
 import { chooseFolder, listSaved, saveNow, setMinutes, turnOff, unlock, useSaveState } from './autosave';
 import { Inspector } from './Inspector';
 
@@ -282,6 +283,7 @@ export function App() {
   const [backups, setBackups] = useState<Backup[] | null>(null);
   const [saveDlg, setSaveDlg] = useState(false);
   const save = useSaveState();
+  const pane = (patch: Partial<Panes>) => ui({ panes: { ...getState().panes, ...patch } });
   const side = s.view !== 'research' && s.view !== 'reports';
 
   useEffect(() => {
@@ -483,14 +485,24 @@ export function App() {
           {s.view === 'script' && <Script s={s} matches={matches} zoomable />}
           {s.view === 'timeline' && <Timeline s={s} matches={matches} />}
           {s.view === 'all' && (
-            <div className="all">
-              <div className="all-script compact">
-                <Script s={s} matches={matches} />
-              </div>
+            <div className="all" style={{ ['--p-script' as string]: s.panes.script, ['--p-tl' as string]: s.panes.timeline }}>
+              {s.panes.scriptOff ? (
+                <button className="all-show" onClick={() => pane({ scriptOff: false })} title="Zobrazit okno se scénářem">
+                  <span>Scénář ▸</span>
+                </button>
+              ) : (
+                <>
+                  <div className="all-script compact">
+                    <Script s={s} matches={matches} onHide={() => pane({ scriptOff: true })} />
+                  </div>
+                  <Splitter name="--p-script" min={0.15} max={0.8} what="scénář" onChange={(script) => pane({ script })} onReset={() => pane({ script: PANES_DEFAULT.script })} />
+                </>
+              )}
               <div className="all-right">
                 <div className="all-timeline">
                   <Timeline s={slow} matches={slowMatches} />
                 </div>
+                <Splitter name="--p-tl" min={0.12} max={0.85} what="časová osa a tabule" onChange={(timeline) => pane({ timeline })} onReset={() => pane({ timeline: PANES_DEFAULT.timeline })} />
                 <div className="all-board">
                   <Board s={slow} issues={slowIssues} matches={slowMatches} noSplit />
                 </div>

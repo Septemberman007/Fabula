@@ -7,7 +7,7 @@ import { LAYOUT, PAPERS, Pagination } from '../paginate';
  * Scénář rozložený na strany: náhled na obrazovce a zároveň podklad pro tisk.
  * Řádky jsou už zalomené stránkováním, takže se tisknou přesně tak, jak se počítají.
  */
-export const Pages = memo(function Pages({ p, pg, zoom, selected }: { p: Project; pg: Pagination; zoom: number; selected: ID | null }) {
+export const Pages = memo(function Pages({ p, pg, zoom, cols, selected }: { p: Project; pg: Pagination; zoom: number; cols: number; selected: ID | null }) {
   const paper = PAPERS[pg.paper];
   const tp = p.titlePage;
   const changed = (paraId: ID, beatId: ID) => {
@@ -16,7 +16,7 @@ export const Pages = memo(function Pages({ p, pg, zoom, selected }: { p: Project
   };
   const size = { width: paper.width, height: paper.height };
   return (
-    <div className="sheets" style={zoom !== 1 ? { zoom } : undefined}>
+    <div className={`sheets${cols > 1 ? ' grid' : ''}`} style={{ zoom: zoom !== 1 ? zoom : undefined, ['--cols' as string]: cols }}>
       <style>{`@media print { @page { size: ${paper.css}; margin: 0; } }`}</style>
       <div className="sheet sheet-title" style={size}>
         <h1>{p.title}</h1>

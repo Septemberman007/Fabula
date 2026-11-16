@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { produce } from 'immer';
 import { Beat, BoardNote, CharRole, ID, NOTE_COLORS, PALETTE, Para, Project, ResearchItem, TagMode, newBeat, uid } from './model';
 import { carriedLevel } from './tension';
-import { Theme, applyTheme, autoBackup, ScriptShow, loadScriptShow, loadScriptZoom, loadTheme, rebaseWords, recordWords, saveBackup, saveScriptShow, saveScriptZoom } from './local';
+import { Theme, applyTheme, autoBackup, ScriptShow, Panes, loadPageCols, loadPanes, savePageCols, savePanes, loadScriptShow, loadScriptZoom, loadTheme, rebaseWords, recordWords, saveBackup, saveScriptShow, saveScriptZoom } from './local';
 import { totalWords } from './stats';
 import { initAutosave, markDirty } from './autosave';
 import { dbGet, dbSet } from './db';
@@ -46,6 +46,10 @@ export interface State {
   scriptZoom: number;
   /** Scénář: náhled po stranách místo editoru. */
   paged: boolean;
+  /** Scénář po stranách: kolik stran je vedle sebe. */
+  pageCols: number;
+  /** Velikosti oken měněné tažením a schovaný scénář v pohledu Vše. */
+  panes: Panes;
   /** Scénář: co se kromě samotného textu zobrazuje. */
   scriptShow: ScriptShow;
   /** Tabule a časová osa se přibližují společně. */
@@ -122,6 +126,8 @@ let state: State = {
   tlZoom: 1,
   scriptZoom: loadScriptZoom(),
   paged: false,
+  pageCols: loadPageCols(),
+  panes: loadPanes(),
   scriptShow: loadScriptShow(),
   zoomLink: false,
   split: false,
@@ -177,11 +183,13 @@ export function useSel<T>(select: (s: State) => T): T {
     () => select(state),
   );
 }
-export const ui = (patch: Partial<Pick<State, 'selected' | 'multi' | 'filter' | 'filterOpen' | 'inspector' | 'colorBy' | 'highlight' | 'collapsed' | 'research' | 'linkFrom' | 'view' | 'tab' | 'zoom' | 'tlZoom' | 'scriptZoom' | 'paged' | 'scriptShow' | 'zoomLink' | 'split' | 'byLength'>>) =>
+export const ui = (patch: Partial<Pick<State, 'selected' | 'multi' | 'filter' | 'filterOpen' | 'inspector' | 'colorBy' | 'highlight' | 'collapsed' | 'research' | 'linkFrom' | 'view' | 'tab' | 'zoom' | 'tlZoom' | 'scriptZoom' | 'paged' | 'pageCols' | 'panes' | 'scriptShow' | 'zoomLink' | 'split' | 'byLength'>>) =>
   {
   // Přiblížení scénáře si prohlížeč pamatuje, aby ho nebylo třeba nastavovat při každém otevření.
   if (patch.scriptZoom !== undefined) saveScriptZoom(patch.scriptZoom);
   if (patch.scriptShow) saveScriptShow(patch.scriptShow);
+  if (patch.pageCols !== undefined) savePageCols(patch.pageCols);
+  if (patch.panes) savePanes(patch.panes);
   emit({ ...state, ...patch });
 };
 

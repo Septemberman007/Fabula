@@ -7,7 +7,7 @@ import { ZoomSlider } from '../ZoomSlider';
 import { beatWords, hasText } from '../text';
 import { PAPERS, Pagination, pageRange, paginate, paperOf } from '../paginate';
 import { Pages } from './Pages';
-import { SCRIPT_SHOW_ALL, SCRIPT_SHOW_NONE, SCRIPT_ZOOM, ScriptShow } from '../local';
+import { PAGE_COLS_MAX, SCRIPT_SHOW_ALL, SCRIPT_SHOW_NONE, SCRIPT_ZOOM, ScriptShow } from '../local';
 
 interface BeatProps {
   beat: Beat;
@@ -77,6 +77,9 @@ const ScriptBeat = memo(function ScriptBeat({ beat: b, n, laneColor, selected, f
   );
 });
 
+/** Mezera mezi listy v náhledu stran (px, stejná jako v CSS). */
+const SHEET_GAP = 18;
+
 /** Zlomy stran v odstavcích jednoho beatu jako text (viz BeatEditor). */
 function beatMarks(pg: Pagination, b: Beat): string {
   const out: string[] = [];
@@ -96,7 +99,7 @@ function spokenLines(paras: { type: string; text: string }[]): string[] {
     .map((x) => (x.type === 'character' ? `${x.text.replace(/\(.*?\)/g, '').trim()}:` : x.text.trim()));
 }
 
-export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | null; zoomable?: boolean }) {
+export function Script({ s, matches, zoomable, onHide }: { s: State; matches: Set<ID> | null; zoomable?: boolean; onHide?: () => void }) {
   const p = s.project;
   const [reading, setReading] = useState(false);
   // Při tisku se místo editoru vykreslí hotové strany, aby tisk přesně odpovídal stránkování.
@@ -122,7 +125,10 @@ export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | 
     ro.observe(box.current);
     return () => ro.disconnect();
   }, []);
-  const sheetFit = Math.min(1, winW / (PAPERS[paperOf(s.project)].px + 2));
+  // Více stran vedle sebe: velikost se řídí jen jejich počtem, aby se na šířku vešly všechny.
+  const cols = paged ? s.pageCols : 1;
+  const sheetW = PAPERS[paperOf(s.project)].px + 2;
+  const sheetFit = Math.min(1, winW / (cols * sheetW + (cols - 1) * SHEET_GAP));
   const show = s.scriptShow;
   const root = useRef<HTMLDivElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
@@ -184,10 +190,12 @@ export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | 
   let n = 0;
 
   return (
-    <div className="script" ref={box}>
+    <div className="script">
       <div className="script-stats">
+        <span className="script-count">
         {beats.filter(hasText).length} z {beats.length} beatů rozepsáno · {sceneCount} scén · {words} slov · {pages} str. (≈ {pages} min)
         {hiddenCount > 0 && <b> · {hiddenCount} beatů skryto filtrem</b>}
+        </span>
         {canSpeak && (
           <button className="read-btn" onClick={reading ? stop : read} title="Přečte scénář nahlas od vybraného beatu">
             {reading ? 'Zastavit čtení' : 'Číst nahlas'}
@@ -233,9 +241,24 @@ export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | 
             ))}
           </select>
         )}
-        {zoomable && <ZoomSlider value={s.scriptZoom} min={SCRIPT_ZOOM.min} max={SCRIPT_ZOOM.max} what="scénář" onChange={(z) => ui({ scriptZoom: z })} />}
+        {paged && (
+          <select className="paper-select" value={cols} title="Kolik stran je vedle sebe" onChange={(e) => ui({ pageCols: +e.target.value })}>
+            {Array.from({ length: PAGE_COLS_MAX }, (_, i) => i + 1).map((k) => (
+              <option key={k} value={k}>
+                {k === 1 ? '1 strana' : k < 5 ? `${k} strany vedle sebe` : `${k} stran vedle sebe`}
+              </option>
+            ))}
+          </select>
+        )}
+        {onHide && (
+          <button className="read-btn" onClick={onHide} title="Schová okno se scénářem; zůstane časová osa a tabule">
+            Skrýt scénář
+          </button>
+        )}
+        {zoomable && cols === 1 && <ZoomSlider value={s.scriptZoom} min={SCRIPT_ZOOM.min} max={SCRIPT_ZOOM.max} what="scénář" onChange={(z) => ui({ scriptZoom: z })} />}
       </div>
-      {(paged || printing) && <Pages p={p} pg={pg} zoom={printing ? 1 : s.scriptZoom * sheetFit} selected={s.selected} />}
+      <div className="script-scroll" ref={box}>
+      {(paged || printing) && <Pages p={p} pg={pg} zoom={printing ? 1 : cols > 1 ? sheetFit : s.scriptZoom * sheetFit} cols={printing ? 1 : cols} selected={s.selected} />}
       {!paged && (
       <div className="page beat-editor" ref={wrap} style={zoomable && s.scriptZoom !== 1 ? { zoom: s.scriptZoom } : undefined} {...sf.focus}>
         <div key={sf.epoch} ref={root} className="surface" {...sf.host}>
@@ -280,6 +303,7 @@ export function Script({ s, matches, zoomable }: { s: State; matches: Set<ID> | 
         {sf.overlay}
       </div>
       )}
+      </div>
     </div>
   );
 }

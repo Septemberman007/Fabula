@@ -1,3 +1,5 @@
+import { Splitter } from '../Splitter';
+import { PANES_DEFAULT } from '../local';
 import { DragEvent, MouseEvent, PointerEvent, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { BoardNote, ID, NOTE_COLORS, Project, STATUS_LABEL, beatName, beatNumber, groupBeats } from '../model';
 import { ColorBy, State, actions, setZoom, toggleZoomLink, ui } from '../store';
@@ -427,7 +429,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
   const band_ = band && { left: Math.min(band.x0, band.x1), top: Math.min(band.y0, band.y1), width: Math.abs(band.x1 - band.x0), height: Math.abs(band.y1 - band.y0) };
 
   return (
-    <div className="board">
+    <div className="board" style={{ ['--p-split' as string]: s.panes.split }}>
       <div className="board-bar">
         {s.linkFrom ? (
           <span className="banner">
@@ -675,6 +677,17 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
         </div>
       </div>
 
+      {s.split && !noSplit && (
+        <Splitter
+          name="--p-split"
+          min={0.12}
+          max={0.8}
+          after
+          what="tabule a text scény"
+          onChange={(split) => ui({ panes: { ...s.panes, split } })}
+          onReset={() => ui({ panes: { ...s.panes, split: PANES_DEFAULT.split } })}
+        />
+      )}
       {s.split && !noSplit && (
         <div className="board-split">
           {selectedBeat ? (

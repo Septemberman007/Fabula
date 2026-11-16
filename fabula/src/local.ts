@@ -123,3 +123,37 @@ export const SCRIPT_SHOW_NONE: ScriptShow = { titles: false, synopsis: false, ta
 const SCRIPT_SHOW_KEY = 'fabula.scriptShow';
 export const loadScriptShow = (): ScriptShow => ({ ...SCRIPT_SHOW_ALL, ...read<Partial<ScriptShow>>(SCRIPT_SHOW_KEY, {}) });
 export const saveScriptShow = (show: ScriptShow) => write(SCRIPT_SHOW_KEY, show);
+
+// ---------- Rozložení oken ----------
+
+/** Podíly oken, které jdou měnit tažením, a co je schované. */
+export interface Panes {
+  /** Pohled Vše: podíl scénáře na šířce (na úzkém displeji na výšce). */
+  script: number;
+  /** Pohled Vše: podíl časové osy na výšce pravé části. */
+  timeline: number;
+  /** Tabule: podíl panelu s textem scény na výšce. */
+  split: number;
+  /** Pohled Vše bez scénáře: jen časová osa a tabule. */
+  scriptOff: boolean;
+}
+export const PANES_DEFAULT: Panes = { script: 0.36, timeline: 0.45, split: 0.36, scriptOff: false };
+const PANES_KEY = 'fabula.panes';
+const share = (v: unknown, fallback: number) => (typeof v === 'number' && v > 0.05 && v < 0.95 ? v : fallback);
+export const loadPanes = (): Panes => {
+  const raw = read<Partial<Panes>>(PANES_KEY, {});
+  return {
+    script: share(raw.script, PANES_DEFAULT.script),
+    timeline: share(raw.timeline, PANES_DEFAULT.timeline),
+    split: share(raw.split, PANES_DEFAULT.split),
+    scriptOff: raw.scriptOff === true,
+  };
+};
+export const savePanes = (panes: Panes) => write(PANES_KEY, panes);
+
+// ---------- Počet stran vedle sebe ----------
+
+export const PAGE_COLS_MAX = 6;
+const PAGE_COLS_KEY = 'fabula.pageCols';
+export const loadPageCols = () => Math.min(PAGE_COLS_MAX, Math.max(1, Math.round(read<number>(PAGE_COLS_KEY, 1)) || 1));
+export const savePageCols = (n: number) => write(PAGE_COLS_KEY, n);
