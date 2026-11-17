@@ -271,3 +271,61 @@ describe('oznámení o nové verzi', () => {
     expect(appScript('<html></html>')).toBeNull();
   });
 });
+
+import { appendDraft, draftToParas, pointId, pointsOf, scenesOfPoint, togglePoint, weave } from '../src/dramatica';
+
+describe('splétání, storypointy u scén a převod textu', () => {
+  const make = () => {
+    const beats = [sb('OS', 'signpost', 1), sb('OS', 'signpost', 2), sb('OS', 'signpost', 4), sb('MC', 'signpost', 1), sb('MC', 'signpost', 2)];
+    const moments = Array.from({ length: 12 }, (_, i) => ({ id: `m${i}`, title: `Scéna ${i}`, synopsis: '', text: '', act: 1, order: i, storybeats: [] as string[] }));
+    moments[0].storybeats = ['OS/signpost/1', 'MC/signpost/1'];
+    moments[1].storybeats = ['OS/signpost/2'];
+    moments[11].storybeats = ['OS/signpost/4'];
+    const p = importDramatica({ storybeats: beats, moments, drivers: [], players: [], notes: [], storyform: { dynamics: [], points: [{ throughline: 'MC', name: 'Problem', fn: 'Inequity', summary: 'Vina.', text: '' }, { throughline: '', name: 'Story Goal', fn: 'Understanding', summary: '', text: '' }] } }, 'x');
+    return p;
+  };
+  const id = (p: ReturnType<typeof make>, n: number) => Object.values(p.beats).find((b) => b.title === `Scéna ${n}`)!.id;
+
+  it('najde, kde throughline leží, kde dlouho mlčí a který Signpost chybí', () => {
+    const p = make();
+    const w = weave(p);
+    expect([...w.rows.OS.keys()]).toEqual([id(p, 0), id(p, 1), id(p, 11)]);
+    expect(w.spans.filter((x) => x.throughline === 'OS').map((x) => x.signpost)).toEqual([1, 2, 4]);
+    expect(w.gaps).toEqual([{ throughline: 'OS', from: id(p, 1), to: id(p, 11), scenes: 9 }]);
+    // OS nemá Signpost 3 ve storyformu vůbec, takže nechybí; MC má Signpost 2 a ve scéně není.
+    expect(w.missing).toEqual([{ throughline: 'MC', signposts: [2] }]);
+    const messages = evaluate(p).map((i) => i.message);
+    expect(messages.some((m) => m.includes('Objective Story mlčí 9 scén'))).toBe(true);
+    expect(messages.some((m) => m.includes('Main Character: v žádné scéně zatím není nic ze Signpostu 2'))).toBe(true);
+  });
+  it('storypoint jde připnout k více scénám a zase odepnout', () => {
+    const p = make();
+    const problem = pointId(p.storyform!.points[0]);
+    expect([problem, pointId(p.storyform!.points[1])]).toEqual(['MC/Problem', 'ST/Story Goal']);
+    togglePoint(p, id(p, 3), problem);
+    togglePoint(p, id(p, 1), problem);
+    expect(scenesOfPoint(p, problem).map((b) => b.title)).toEqual(['Scéna 1', 'Scéna 3']);
+    expect(pointsOf(p, p.beats[id(p, 3)]).map((x) => x.name)).toEqual(['Problem']);
+    togglePoint(p, id(p, 3), problem);
+    expect(scenesOfPoint(p, problem).map((b) => b.title)).toEqual(['Scéna 1']);
+  });
+  it('rozepsaný text převede na hlavičku, akci a repliky', () => {
+    const text = 'INT. JÍDELNA – DEN\n\nCibulka ochutná čaj. Podívá se do hrnku.\n\nCIBULKA\nČaj je studený.\n\nZUZANA Máte připravenou výbavu?\n\nEVA Ne.\n\nOběd. Jídelna plná drobných zvuků.';
+    expect(draftToParas(text).map((x) => `${x.type}:${x.text}`)).toEqual([
+      'scene:INT. JÍDELNA – DEN',
+      'action:Cibulka ochutná čaj. Podívá se do hrnku.',
+      'character:CIBULKA',
+      'dialogue:Čaj je studený.',
+      'character:ZUZANA',
+      'dialogue:Máte připravenou výbavu?',
+      'character:EVA',
+      'dialogue:Ne.',
+      'action:Oběd. Jídelna plná drobných zvuků.',
+    ]);
+    const p = make();
+    expect(appendDraft(p, id(p, 0), 'EVA\nNe.')).toBe(2);
+    expect(p.beats[id(p, 0)]).toMatchObject({ status: 'draft', paras: [{ type: 'character', text: 'EVA' }, { type: 'dialogue', text: 'Ne.' }] });
+    expect(appendDraft(p, id(p, 0), 'Ticho.')).toBe(1);
+    expect(p.beats[id(p, 0)].paras).toHaveLength(3);
+  });
+});

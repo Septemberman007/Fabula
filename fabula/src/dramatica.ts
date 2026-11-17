@@ -1,5 +1,6 @@
-import type { Beat, CharRole, ID, Project, StoryBeat, Storyform, StorybeatScope, Throughline } from './model';
-import { PALETTE, newBeat, uid } from './model';
+import type { Beat, CharRole, ID, Para, Project, StoryBeat, Storyform, StorybeatScope, Throughline } from './model';
+import { PALETTE, newBeat, newPara, uid } from './model';
+import { parseFountain } from './text';
 import { THROUGHLINE_COLOR } from './colors';
 
 /**
@@ -663,4 +664,108 @@ export function exportDramatica(p: Project) {
     plotOrder: at.get(x.key) ?? null,
     scene: sceneOf(p, x.key)?.title ?? null,
   }));
+}
+
+// ---------- Splétání: čtyři throughlines v čase ----------
+
+/** Scény v pořadí vyprávění, které se počítají do příběhu. */
+const liveScenes = (p: Project): Beat[] => p.order.map((id) => p.beats[id]).filter((b) => b && !b.off);
+
+/** Storybeaty scény se vším, co o nich storyform ví. */
+export function storybeatsOf(p: Project, b: Beat): StoryBeat[] {
+  if (!b.storybeats?.length) return [];
+  const byKey = new Map((p.storyform?.beats ?? []).map((x) => [x.key, x]));
+  return b.storybeats.map((k) => byKey.get(k)).filter((x): x is StoryBeat => !!x);
+}
+
+export interface Weave {
+  /** Pro každou throughline: scéna → storybeaty, které v ní nese. */
+  rows: Record<Throughline, Map<ID, StoryBeat[]>>;
+  /** Úsek scén, ve kterém leží storybeaty jednoho Signpostu. */
+  spans: { throughline: Throughline; signpost: number; first: ID; last: ID }[];
+  /** Dlouhé mlčení: mezi dvěma scénami throughline je příliš mnoho scén bez ní. */
+  gaps: { throughline: Throughline; from: ID; to: ID; scenes: number }[];
+  /** Signposty, ze kterých v žádné scéně nic není (jen u throughline, která už na tabuli je). */
+  missing: { throughline: Throughline; signposts: number[] }[];
+}
+
+/** Jak jsou throughlines vpleteny do scén, a kde splétání drhne. */
+export function weave(p: Project): Weave {
+  const scenes = liveScenes(p);
+  const rows = Object.fromEntries(THROUGHLINES.map((t) => [t.key, new Map<ID, StoryBeat[]>()])) as Weave['rows'];
+  scenes.forEach((b) => {
+    for (const sb of storybeatsOf(p, b)) rows[sb.throughline].set(b.id, [...(rows[sb.throughline].get(b.id) ?? []), sb]);
+  });
+  const at = new Map(scenes.map((b, i) => [b.id, i]));
+  // Mlčení je dlouhé, když trvá přes čtvrtinu příběhu (a aspoň osm scén).
+  const limit = Math.max(8, Math.ceil(scenes.length / 4));
+  const out: Weave = { rows, spans: [], gaps: [], missing: [] };
+  for (const t of THROUGHLINES) {
+    const ids = [...rows[t.key].keys()];
+    for (let i = 1; i < ids.length; i++) {
+      const between = at.get(ids[i])! - at.get(ids[i - 1])! - 1;
+      if (between >= limit) out.gaps.push({ throughline: t.key, from: ids[i - 1], to: ids[i], scenes: between });
+    }
+    const seen = new Set<number>();
+    for (let sp = 1; sp <= 4; sp++) {
+      const mine = ids.filter((id) => rows[t.key].get(id)!.some((x) => signpostOf(x) === sp));
+      if (!mine.length) continue;
+      seen.add(sp);
+      out.spans.push({ throughline: t.key, signpost: sp, first: mine[0], last: mine[mine.length - 1] });
+    }
+    const all = new Set((p.storyform?.beats ?? []).filter((x) => x.throughline === t.key).map(signpostOf));
+    const missing = [...all].filter((sp) => !seen.has(sp)).sort();
+    if (ids.length && missing.length) out.missing.push({ throughline: t.key, signposts: missing });
+  }
+  return out;
+}
+
+// ---------- Storypointy připnuté ke scénám ----------
+
+type Point = Storyform['points'][number];
+/** Klíč storypointu: „MC/Problem“, u storypointů celého příběhu „ST/Story Goal“. */
+export const pointId = (x: Pick<Point, 'throughline' | 'name'>) => `${x.throughline || 'ST'}/${x.name}`;
+
+/** Připne storypoint ke scéně, nebo ho odepne. */
+export function togglePoint(p: Project, beatId: ID, point: string) {
+  const b = p.beats[beatId];
+  if (!b) return;
+  b.points = b.points?.includes(point) ? b.points.filter((x) => x !== point) : [...(b.points ?? []), point];
+}
+
+/** Scény, které storypoint ukazují, v pořadí vyprávění. */
+export const scenesOfPoint = (p: Project, point: string): Beat[] => p.order.map((id) => p.beats[id]).filter((b) => b?.points?.includes(point));
+
+/** Storypointy připnuté ke scéně. */
+export const pointsOf = (p: Project, b: Beat): Point[] => (p.storyform?.points ?? []).filter((x) => b.points?.includes(pointId(x)));
+
+// ---------- Rozepsaný text do scénáře ----------
+
+/**
+ * Převede rozepsaný text (Storytelling Události, Story Driver) na odstavce scénáře. Text bývá zpola próza:
+ * replika na jednom řádku se jménem („ZUZANA Máte výbavu?“) se nejdřív rozdělí na jméno a repliku.
+ */
+export function draftToParas(text: string): Para[] {
+  const split = text
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => {
+      const m = /^(\p{Lu}[\p{Lu}.' -]{1,28}\p{Lu})\s+(\S.*)$/u.exec(line.trim());
+      // Hlavička scény (INT./EXT.) je také velkými písmeny, ale replikou není.
+      return m && /\p{Ll}/u.test(m[2]) && !/^(INT|EXT)\b/.test(m[1]) ? `\n${m[1]}\n${m[2]}\n` : line;
+    })
+    .join('\n');
+  return parseFountain(split);
+}
+
+/** Připíše rozepsaný text na konec scény; prázdný první odstavec nahradí. Vrátí počet přidaných odstavců. */
+export function appendDraft(p: Project, beatId: ID, text: string): number {
+  const b = p.beats[beatId];
+  const paras = draftToParas(text);
+  if (!b || !paras.length) return 0;
+  const empty = b.paras.every((x) => !x.text.trim());
+  b.paras = empty ? paras : [...b.paras, ...paras];
+  if (!b.paras.length) b.paras = [newPara()];
+  if (b.status === 'idea') b.status = 'draft';
+  return paras.length;
 }

@@ -1,11 +1,12 @@
 import { MouseEvent, PointerEvent, ReactNode, memo, useEffect, useMemo, useRef, useState } from 'react';
-import { CharRole, Character, Group, ID, ROLE_LABEL, TAG_MODE_LABEL, Tag, beatName, groupBeats, tagCategories } from '../model';
+import { CharRole, Character, Group, ID, ROLE_LABEL, TAG_CATEGORIES, TAG_MODE_LABEL, Tag, beatName, groupBeats, tagCategories } from '../model';
 import { hasText } from '../text';
 import { ColorBy, State, actions, setZoom, toggleZoomLink, ui } from '../store';
 import { detectedCharacters } from '../text';
 import { beatPages } from '../paginate';
 import { derivedTension, heat, heatColor, tagTension } from '../tension';
 import { COLOR_BY_LABEL, beatColor } from '../colors';
+import { THROUGHLINES, storybeatTag, weave } from '../dramatica';
 import { ZoomSlider } from '../ZoomSlider';
 import { TIMELINE_COL, TIMELINE_ZOOM, fitZoom, registerFit } from '../zoom';
 
@@ -61,6 +62,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
   const detected = useMemo(() => new Map(beats.map((id) => [id, detectedCharacters(p, p.beats[id])])), [p]);
   const derived = useMemo(() => derivedTension(p), [p]);
   const heatMap = useMemo(() => heat(p), [p]);
+  const weaveData = useMemo(() => weave(p), [p]);
   const cx = (id: ID) => xs[id] + ws[id] / 2;
   const ty = (t: number) => PAD + ((10 - t) / 10) * (CURVE - 2 * PAD);
   const ly = (v: number) => 9 + ((10 - v) / 10) * (TAG_ROW - 18);
@@ -211,14 +213,27 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
   const heatStops = beats.map((id) => `${heatColor(heatMap.get(id) ?? 0)} ${Math.round(cx(id))}px`);
   let n = 0;
 
-  const section = (key: string, title: string, count: number): Row => ({
+  /** Po přidání řádku se vpravo otevře jeho nastavení, kde dostane jméno a barvu. */
+  const added = (key: string) => ui({ tab: 'cast', inspector: true, collapsed: s.collapsed.filter((k) => k !== key) });
+  const addTag = (cat: string) => {
+    actions.addTag(cat, TAG_CATEGORIES.find(([name]) => name === cat)?.[1] ?? 'change');
+    added(`tag:${cat}`);
+  };
+  const section = (key: string, title: string, count: number, onAdd?: () => void): Row => ({
     key,
     h: SECTION,
     kind: 'section',
     label: (
-      <button onClick={() => toggle(key)} aria-expanded={isOpen(key)} title={isOpen(key) ? 'Sbalit' : 'Rozbalit'}>
-        {isOpen(key) ? '▾' : '▸'} {title} <small>{count}</small>
-      </button>
+      <>
+        <button onClick={() => toggle(key)} aria-expanded={isOpen(key)} title={isOpen(key) ? 'Sbalit' : 'Rozbalit'}>
+          {isOpen(key) ? '▾' : '▸'} {title} <small>{count}</small>
+        </button>
+        {onAdd && (
+          <button className="tl-add" onClick={onAdd} title={`Přidat řádek do oddílu ${title}`}>
+            +
+          </button>
+        )}
+      </>
     ),
     content: null,
   });
@@ -475,20 +490,99 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
     });
   }
 
+  // Splétání: čtyři throughlines v čase. Pruh ukazuje, kde leží Signpost; šrafa, kde throughline dlouho mlčí.
+  if (p.storyform?.beats.length) {
+    const w = weaveData;
+    rows.push(section('weave', 'Splétání', 4));
+    if (isOpen('weave')) {
+      for (const t of THROUGHLINES) {
+        const total = p.storyform.beats.filter((x) => x.throughline === t.key).length;
+        const placed = [...w.rows[t.key].values()].reduce((k, list) => k + list.length, 0);
+        rows.push({
+          key: `weave:${t.key}`,
+          h: ROW,
+          label: (
+            <>
+              <i style={{ background: t.color }} />
+              <span className="tl-name" title={`${placed} z ${total} storybeatů je ve scénách`}>
+                {t.name} <small>{placed}/{total}</small>
+              </span>
+            </>
+          ),
+          content: (
+            <>
+              {w.spans
+                .filter((x) => x.throughline === t.key && xs[x.first] !== undefined && xs[x.last] !== undefined)
+                .map((x) => (
+                  <span key={`s${x.signpost}`} className="tl-sp" style={{ left: xs[x.first], width: xs[x.last] + ws[x.last] - xs[x.first], borderColor: t.color, color: t.color }}>
+                    S{x.signpost}
+                  </span>
+                ))}
+              {w.gaps
+                .filter((x) => x.throughline === t.key && xs[x.from] !== undefined && xs[x.to] !== undefined)
+                .map((x) => (
+                  <span key={`g${x.from}`} className="tl-gap" style={{ left: xs[x.from] + ws[x.from], width: xs[x.to] - xs[x.from] - ws[x.from] }} title={`${t.name} tu ${x.scenes} scén mlčí`} />
+                ))}
+              {[...w.rows[t.key]].map(
+                ([id, list]) =>
+                  xs[id] !== undefined && (
+                    <span key={id} className="tl-weave" style={{ left: cx(id), background: t.color }} title={list.map((x) => `${storybeatTag(x)} ${x.fn}${x.summary ? ' – ' + x.summary : ''}`).join('\n')}>
+                      {storybeatTag(list[0]).split(' ')[1]}
+                      {list.length > 1 && `+${list.length - 1}`}
+                    </span>
+                  ),
+              )}
+            </>
+          ),
+        });
+      }
+    }
+  }
+
   for (const cat of tagCategories(p)) {
     const tags = p.tags.filter((t) => t.category === cat);
     if (!tags.length) continue;
     const key = `tag:${cat}`;
-    rows.push(section(key, cat, tags.length));
+    rows.push(section(key, cat, tags.length, () => addTag(cat)));
     if (isOpen(key)) for (const t of tags) rows.push(t.mode === 'none' ? threadRow(t) : curveRow(t));
   }
   for (const role of Object.keys(ROLE_LABEL) as CharRole[]) {
     const chars = p.characters.filter((c) => c.role === role);
     if (!chars.length) continue;
     const key = `role:${role}`;
-    rows.push(section(key, ROLE_LABEL[role], chars.length));
+    rows.push(section(key, ROLE_LABEL[role], chars.length, () => (actions.addCharacter(role), added(key))));
     if (isOpen(key)) for (const c of chars) rows.push(charRow(c));
   }
+  // Nový sledovací řádek: motiv v kterékoli kategorii (i nové) nebo postava.
+  rows.push({
+    key: 'add-row',
+    h: ROW,
+    label: (
+      <select
+        className="tl-add-row"
+        value=""
+        title="Přidá na osu další řádek ke sledování: motiv, téma, rekvizitu, minizápletku nebo postavu"
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === 'char') return actions.addCharacter(), added('role:main');
+          const cat = v === 'new' ? prompt('Název nové kategorie řádků (např. Rekvizity, Místa, Symboly):')?.trim() : v;
+          if (cat) addTag(cat);
+        }}
+      >
+        <option value="">+ Přidat řádek…</option>
+        <optgroup label="Motiv v kategorii">
+          {tagCategories(p).map((cat) => (
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
+          ))}
+          <option value="new">Nová kategorie…</option>
+        </optgroup>
+        <option value="char">Postava</option>
+      </select>
+    ),
+    content: null,
+  });
 
   return (
     <div className={`timeline${dense ? ' tl-dense' : ''}`}>

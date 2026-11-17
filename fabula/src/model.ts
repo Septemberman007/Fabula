@@ -188,6 +188,8 @@ export interface Beat {
   source?: DramaticaSource;
   /** Storybeaty, které scéna nese (klíče „OS/event/3“); storybeat je nejvýš v jedné scéně. */
   storybeats?: string[];
+  /** Storypointy, které scéna ukazuje (klíče „MC/Problem“); jeden storypoint může být ve více scénách. */
+  points?: string[];
 }
 
 export type Throughline = 'OS' | 'MC' | 'IC' | 'RS';

@@ -4,7 +4,7 @@ import { Issue } from './evaluate';
 import { detectedCharacters, unknownSpeakers } from './text';
 import { eighths, pageRange, paginate } from './paginate';
 import { useState } from 'react';
-import { THROUGHLINES, assignStorybeats, sceneFromStorybeats, sceneOf, storybeatTag, throughlinesOf, unassignStorybeat, unassigned } from './dramatica';
+import { THROUGHLINES, appendDraft, assignStorybeats, pointId, pointsOf, sceneFromStorybeats, sceneOf, scenesOfPoint, storybeatTag, throughlinesOf, togglePoint, unassignStorybeat, unassigned } from './dramatica';
 import { THROUGHLINE_COLOR } from './colors';
 import type { StoryBeat, Throughline } from './model';
 
@@ -50,6 +50,23 @@ const Chip = ({ sb }: { sb: StoryBeat }) => (
   </span>
 );
 
+/** Připíše rozepsaný text na konec scény jako odstavce scénáře; původní text zůstává a krok jde vrátit. */
+function DraftButton({ id, text }: { id: ID; text: string }) {
+  return (
+    <button
+      className="draft-btn"
+      title="Text se rozdělí na hlavičky, akci a repliky a připíše se na konec scény. Původní text tu zůstane; krok vrátíš přes Zpět."
+      onClick={() => {
+        let n = 0;
+        actions.editScript((draft) => void (n = appendDraft(draft, id, text)));
+        if (!n) alert('V textu jsem nenašel nic, co by šlo převést.');
+      }}
+    >
+      Převést do scénáře
+    </button>
+  );
+}
+
 /** Storybeaty, které scéna nese: jejich znění, úprava Storytellingu, vyjmutí a přidání dalšího. */
 function SceneStorybeats({ s, id }: { s: State; id: ID }) {
   const p = s.project;
@@ -76,8 +93,29 @@ function SceneStorybeats({ s, id }: { s: State; id: ID }) {
           </div>
           {sb.summary && <p>{sb.summary}</p>}
           <textarea rows={4} value={sb.storytelling} placeholder="Storytelling: jak se storybeat ve scéně odehraje" onChange={(e) => setText(sb.key, e.target.value)} />
+          {sb.storytelling.trim() && <DraftButton id={id} text={sb.storytelling} />}
         </div>
       ))}
+      {pointsOf(p, b).length > 0 && (
+        <>
+          <div className="insp-kicker">Storypointy scény</div>
+          {pointsOf(p, b).map((x) => (
+            <div className="scene-beat" key={pointId(x)}>
+              <div className="scene-beat-head">
+                <b>
+                  {x.throughline && `${x.throughline} `}
+                  {x.name}
+                </b>
+                <span className="muted">{x.fn}</span>
+                <button className="x" title="Odepnout storypoint od scény" onClick={() => actions.editScript((draft) => togglePoint(draft, id, pointId(x)))}>
+                  ×
+                </button>
+              </div>
+              {x.summary && <p>{x.summary}</p>}
+            </div>
+          ))}
+        </>
+      )}
       {free.length > 0 && (
         <select value="" onChange={(e) => e.target.value && actions.editScript((draft) => assignStorybeats(draft, id, [e.target.value]))}>
           <option value="">+ Přidat storybeat…</option>
@@ -190,20 +228,40 @@ function StoryformPanel({ s }: { s: State }) {
   const sf = p.storyform!;
   const b = s.selected ? p.beats[s.selected] : null;
   const current = b ? (throughlinesOf(p, b)[0] ?? null) : null;
-  const point = (x: (typeof sf.points)[number], i: number) => (
-    <div className="sf-point" key={i}>
-      <b>{x.name}</b>
-      {x.fn && <span>{x.fn}</span>}
-      {x.summary && <p>{x.summary}</p>}
-      {x.text && x.text !== x.summary && (
-        <details>
-          <summary>Storytelling</summary>
-          <p>{x.text}</p>
-        </details>
-      )}
-    </div>
-  );
-  const story = sf.points.filter((x) => !x.throughline);
+  const [open, setOpen] = useState(false);
+  const pinnedAll = new Set(Object.values(p.beats).flatMap((x) => x.points ?? []));
+  const shown = sf.points.filter((x) => !open || !pinnedAll.has(pointId(x)));
+  const point = (x: (typeof sf.points)[number], i: number) => {
+    const pid = pointId(x);
+    const scenes = scenesOfPoint(p, pid);
+    const here = !!b?.points?.includes(pid);
+    return (
+      <div className={`sf-point${here ? ' here' : ''}`} key={i}>
+        <b>{x.name}</b>
+        {x.fn && <span>{x.fn}</span>}
+        <span className="sf-pin">
+          {scenes.length > 0 && (
+            <button className="linklike" title={scenes.map((sc) => sc.title || 'Bez názvu').join('\n')} onClick={() => ui({ selected: scenes[(scenes.findIndex((sc) => sc.id === s.selected) + 1) % scenes.length].id, multi: [] })}>
+              {scenes.length === 1 ? 'v 1 scéně' : `ve ${scenes.length} scénách`}
+            </button>
+          )}
+          {b && (
+            <button className={here ? 'pressed' : ''} title={here ? 'Odepnout od vybrané scény' : `Připnout ke scéně „${b.title || 'Bez názvu'}“: scéna tento storypoint ukazuje`} onClick={() => actions.editScript((draft) => togglePoint(draft, b.id, pid))}>
+              {here ? 'Připnuto' : 'Připnout'}
+            </button>
+          )}
+        </span>
+        {x.summary && <p>{x.summary}</p>}
+        {x.text && x.text !== x.summary && (
+          <details>
+            <summary>Storytelling</summary>
+            <p>{x.text}</p>
+          </details>
+        )}
+      </div>
+    );
+  };
+  const story = shown.filter((x) => !x.throughline);
   return (
     <div className="storyform">
       {sf.dynamics.length > 0 && (
@@ -215,6 +273,11 @@ function StoryformPanel({ s }: { s: State }) {
           ))}
         </div>
       )}
+      {sf.points.length > 0 && (
+        <label className="check sf-open">
+          <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} /> jen storypointy, které zatím žádná scéna neukazuje ({sf.points.filter((x) => !pinnedAll.has(pointId(x))).length} z {sf.points.length})
+        </label>
+      )}
       {story.length > 0 && (
         <details open={!current}>
           <summary>Příběh</summary>
@@ -222,7 +285,7 @@ function StoryformPanel({ s }: { s: State }) {
         </details>
       )}
       {THROUGHLINES.map((t) => {
-        const list = sf.points.filter((x) => x.throughline === t.key);
+        const list = shown.filter((x) => x.throughline === t.key);
         return (
           list.length > 0 && (
             // Klíč podle vybraného beatu: po změně výběru se rozbalí throughline, ke které beat patří.
@@ -314,6 +377,7 @@ function Detail({ s, issues }: { s: State; issues: Issue[] }) {
             placeholder={b.source.kind === 'moment' ? 'Místo, čas a pokyny ke scéně' : 'Storytelling: jak se zlom v příběhu odehraje'}
             onChange={(e) => actions.updateBeat(id, { source: { ...b.source!, text: e.target.value } }, 'source')}
           />
+          {b.source.kind === 'driver' && b.source.text.trim() && <DraftButton id={id} text={b.source.text} />}
         </label>
       )}
       {(p.storyform?.beats.length ?? 0) > 0 && <SceneStorybeats s={s} id={id} />}
@@ -648,7 +712,7 @@ function Cast({ s }: { s: State }) {
           </li>
         ))}
       </ul>
-      <button onClick={actions.addCharacter}>+ Postava</button>
+      <button onClick={() => actions.addCharacter()}>+ Postava</button>
       {unknown.length > 0 && (
         <p className="notice">
           Ve scénáři mluví i {unknown.join(', ')}. <button onClick={actions.addUnknownSpeakers}>Přidat mezi postavy</button>
@@ -713,11 +777,17 @@ function Cast({ s }: { s: State }) {
 
       <h4>Dějové linie</h4>
       <ul className="edit-list">
-        {p.lanes.map((l) => (
+        {p.lanes.map((l, i) => (
           <li key={l.id}>
             <input type="color" value={l.color} onChange={(e) => actions.updateLane(l.id, { color: e.target.value })} title="Barva" />
             <input value={l.name} placeholder="Název linie" onChange={(e) => actions.updateLane(l.id, { name: e.target.value })} />
             <small>{beats.filter((b) => b.laneId === l.id).length}×</small>
+            <button className="x" title="Posunout řádek nahoru" disabled={i === 0} onClick={() => actions.moveLane(l.id, -1)}>
+              ↑
+            </button>
+            <button className="x" title="Posunout řádek dolů" disabled={i === p.lanes.length - 1} onClick={() => actions.moveLane(l.id, 1)}>
+              ↓
+            </button>
             <button
               className="x"
               title={p.lanes.length < 2 ? 'Poslední linii nelze smazat' : 'Smazat linii (beaty se přesunou do první linie)'}

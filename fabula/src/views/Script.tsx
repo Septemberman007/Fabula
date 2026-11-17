@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { Beat, ID, Tag } from '../model';
+import { Beat, ID, Project, Tag } from '../model';
+import { pointsOf, storybeatTag, storybeatsOf } from '../dramatica';
+import { THROUGHLINE_COLOR } from '../colors';
 import { State, actions, getState, ui } from '../store';
 import { BeatParas, SegText, useSurface } from '../Surface';
 import { ZoomSlider } from '../ZoomSlider';
@@ -16,6 +18,8 @@ interface BeatProps {
   selected: boolean;
   folded: boolean;
   tags: Tag[];
+  /** Storybeaty a storypointy scény: řádky „barva|štítek|text|nápověda“. */
+  strip: string;
   sceneBase: number;
   /** Strany, na kterých beat leží („12“ nebo „12–13“). */
   pages: string;
@@ -30,12 +34,12 @@ interface BeatProps {
 }
 
 /** Jeden beat ve scénáři. Zapamatovaný, aby se při psaní překreslil jen ten, který se mění. */
-const ScriptBeat = memo(function ScriptBeat({ beat: b, n, laneColor, selected, folded, tags, sceneBase, pages, marks, show, cur, noteOpen, onNoteClose, onFold }: BeatProps) {
+const ScriptBeat = memo(function ScriptBeat({ beat: b, n, laneColor, selected, folded, tags, strip, sceneBase, pages, marks, show, cur, noteOpen, onNoteClose, onFold }: BeatProps) {
   const id = b.id;
   const pick = () => getState().selected !== id && ui({ selected: id, tab: 'detail' });
   // Bez názvů není čím beat rozbalit, takže se sbalení neuplatní.
   const closed = folded && show.titles;
-  const bare = !show.titles && !show.synopsis && !show.tags;
+  const bare = !show.titles && !show.synopsis && !show.tags && !(show.dramatica && strip);
   return (
     <section
       data-script-beat={id}
@@ -71,11 +75,34 @@ const ScriptBeat = memo(function ScriptBeat({ beat: b, n, laneColor, selected, f
             ))}
         </div>
       )}
+      {show.dramatica && strip && !closed && (
+        <div className="script-strip" contentEditable={false}>
+          {strip.split('\n').map((row) => {
+            const [color, tag, label, hint] = row.split('|');
+            return (
+              <span key={tag + label} title={hint || undefined}>
+                {color ? <i style={{ background: color }}>{tag}</i> : <i className="plain">{tag}</i>}
+                {label}
+              </span>
+            );
+          })}
+        </div>
+      )}
       {show.synopsis && !closed && <SegText seg="syn" beatId={id} text={b.synopsis} className="script-syn" ph="Co se tu stane a proč…" />}
       {!closed && <BeatParas beat={b} sceneBase={sceneBase} marks={marks} cur={cur} noteOpen={noteOpen} onNoteClose={onNoteClose} />}
     </section>
   );
 });
+
+/** Co scéna nese z Dramatiky, jako text: řetězec se nemění, dokud se nezmění obsah, takže se scéna zbytečně nepřekresluje. */
+function stripOf(p: Project, b: Beat): string {
+  if (!b.storybeats?.length && !b.points?.length) return '';
+  const clean = (t: string) => t.replace(/[|\n]/g, ' ');
+  return [
+    ...storybeatsOf(p, b).map((x) => `${THROUGHLINE_COLOR[x.throughline]}|${storybeatTag(x)}|${clean(x.fn)}|${clean(x.summary)}`),
+    ...pointsOf(p, b).map((x) => `|${x.throughline || 'příběh'}|${clean(`${x.name}: ${x.fn}`)}|${clean(x.summary)}`),
+  ].join('\n');
+}
 
 /** Mezera mezi listy v náhledu stran (px, stejná jako v CSS). */
 const SHEET_GAP = 18;
@@ -210,6 +237,7 @@ export function Script({ s, matches, zoomable, onHide }: { s: State; matches: Se
                 ['synopsis', 'Synopse'],
                 ['tags', 'Motivy'],
                 ['breaks', 'Předěly'],
+                ['dramatica', 'Storybeaty a storypointy'],
                 ['pages', 'Čísla a zlomy stran'],
               ] as const
             ).map(([k, label]) => (
@@ -287,6 +315,7 @@ export function Script({ s, matches, zoomable, onHide }: { s: State; matches: Se
               selected={s.selected === id || s.multi.includes(id)}
               folded={folded.has(id)}
               tags={p.tags}
+              strip={stripOf(p, b)}
               sceneBase={base}
               pages={show.pages ? pageRange(pg.beat.get(id)) : ''}
               marks={show.pages ? beatMarks(pg, b) : ''}

@@ -454,6 +454,9 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
               </option>
             ))}
           </select>
+          <button onClick={() => (actions.addLane(), ui({ tab: 'cast', inspector: true }))} title="Přidá na tabuli další řádek; název, barvu a pořadí řádků upravíš vpravo v oddílu Dějové linie">
+            + Linie
+          </button>
           <button onClick={addNote}>+ Poznámka</button>
           <ZoomSlider value={userZoom} min={BOARD_ZOOM.min} max={BOARD_ZOOM.max} what="tabuli" onChange={(z) => setZoom('board', z)} linked={s.zoomLink} onLink={toggleZoomLink} onFit={fit} />
           {!noSplit && (

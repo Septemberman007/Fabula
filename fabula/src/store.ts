@@ -489,6 +489,15 @@ export const actions = {
   updateLane(id: ID, patch: { name?: string; color?: string }) {
     mutate((p) => void Object.assign(p.lanes.find((l) => l.id === id)!, patch), `lane:${id}`);
   },
+  /** Posune linii o řádek nahoru (−1) nebo dolů (+1). */
+  moveLane(id: ID, dir: 1 | -1) {
+    mutate((p) => {
+      const i = p.lanes.findIndex((l) => l.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= p.lanes.length) return;
+      [p.lanes[i], p.lanes[j]] = [p.lanes[j], p.lanes[i]];
+    });
+  },
   /** Beaty ze smazané linie se přesunou do první zbývající. */
   deleteLane(id: ID) {
     if (state.project.lanes.length < 2) return;
@@ -498,8 +507,8 @@ export const actions = {
     });
   },
 
-  addCharacter() {
-    mutate((p) => void p.characters.push({ id: uid(), name: '', color: PALETTE[(p.characters.length + 2) % PALETTE.length], aliases: '', role: 'main' }));
+  addCharacter(role: CharRole = 'main') {
+    mutate((p) => void p.characters.push({ id: uid(), name: '', color: PALETTE[(p.characters.length + 2) % PALETTE.length], aliases: '', role }));
   },
   /** Založí postavy pro všechny mluvčí ze scénáře, kteří v seznamu chybí. */
   addUnknownSpeakers() {
