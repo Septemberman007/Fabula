@@ -1,6 +1,7 @@
 import type { Beat, CharRole, ID, Para, Project, StoryBeat, Storyform, StorybeatScope, Throughline } from './model';
 import { PALETTE, newBeat, newPara, uid } from './model';
 import { parseFountain } from './text';
+import { isBlank } from './structures';
 import { THROUGHLINE_COLOR } from './colors';
 
 /**
@@ -493,7 +494,18 @@ export function mergeDramatica(p: Project, input: Storybeat[] | Bundle): MergeRe
 
   // ----- Momenty: scény v pořadí; storybeaty Momentu jsou jejich štítky -----
   const used = new Set(Object.values(p.beats).flatMap((b) => b.storybeats ?? []));
+  // Když v Dramatice autor vymění šablonu Momentů, prázdné Momenty té staré zmizí; rozepsané a spletené zůstávají.
+  if (moments.length) {
+    const now = new Set(moments.map((x) => x.m.id));
+    for (const b of [...bySource.values()]) {
+      if (b.source!.kind !== 'moment' || now.has(b.source!.id) || !isBlank(p, b)) continue;
+      p.order.splice(p.order.indexOf(b.id), 1);
+      delete p.beats[b.id];
+      bySource.delete(b.source!.id);
+    }
+  }
   for (const { m } of moments) {
+    if (sf.dropped?.includes(m.id)) continue;
     let scene = bySource.get(m.id);
     if (scene) {
       if (m.synopsis && !scene.synopsis) scene.synopsis = m.synopsis;

@@ -7,6 +7,7 @@ import { beatPages } from '../paginate';
 import { derivedTension, heat, heatColor, tagTension } from '../tension';
 import { COLOR_BY_LABEL, beatColor } from '../colors';
 import { THROUGHLINES, storybeatTag, weave } from '../dramatica';
+import { STRUCTURES, applyStructure, blankScenes, clearStructure, layout, structureOf, toggleStructure } from '../structures';
 import { ZoomSlider } from '../ZoomSlider';
 import { TIMELINE_COL, TIMELINE_ZOOM, fitZoom, registerFit } from '../zoom';
 
@@ -490,6 +491,79 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
     });
   }
 
+  // Struktury vyprávění: pravítko kroků přes scény. Víc struktur najednou jde porovnat pod sebou.
+  const active = (p.structures ?? []).map(structureOf).filter((x): x is NonNullable<typeof x> => !!x);
+  const blankMoments = blankScenes(p, 'dramatica').length;
+  if (active.length || blankMoments) {
+    rows.push(section('structure', 'Struktura vyprávění', active.length));
+    if (isOpen('structure')) {
+      for (const st of active) {
+        const blank = blankScenes(p, st.id).length;
+        rows.push({
+          key: `structure:${st.id}`,
+          h: ROW,
+          label: (
+            <>
+              <span className="tl-name" title={st.note}>
+                {st.name}
+              </span>
+              <button className="tl-add" title={`Založit pro každý krok ${st.name} prázdnou scénu na jeho místě`} onClick={() => actions.editScript((d) => void applyStructure(d, st.id))}>
+                + scény
+              </button>
+              {blank > 0 && (
+                <button className="tl-add" title={`Odebrat ${blank} prázdných scén, které ${st.name} založila; rozepsané zůstanou`} onClick={() => actions.editScript((d) => void clearStructure(d, st.id))}>
+                  − {blank}
+                </button>
+              )}
+              <button className="tl-add" title="Skrýt pravítko této struktury" onClick={() => actions.editScript((d) => toggleStructure(d, st.id))}>
+                ×
+              </button>
+            </>
+          ),
+          content: layout(p, st)
+            .filter((x) => x.scenes.length && xs[x.scenes[0]] !== undefined)
+            .map(({ slot, scenes }) => {
+              const last = scenes[scenes.length - 1];
+              return (
+                <span
+                  key={slot.id}
+                  className="tl-slot"
+                  style={{ left: xs[scenes[0]] + gap, width: Math.max(2, xs[last] + ws[last] - xs[scenes[0]] - 2 * gap) }}
+                  title={`${slot.name}\n${slot.ask}`}
+                  onClick={() => ui({ selected: scenes[0], multi: scenes.length > 1 ? scenes : [], tab: 'detail' })}
+                >
+                  {slot.name}
+                </span>
+              );
+            }),
+        });
+      }
+      if (blankMoments) {
+        rows.push({
+          key: 'structure:dramatica',
+          h: ROW,
+          label: (
+            <>
+              <span className="tl-name" title="Momenty šablony z Dramatiky, do kterých jsi zatím nic nevložil">
+                Šablona z Dramatiky
+              </span>
+              <button
+                className="tl-add"
+                title={`Odebrat ${blankMoments} prázdných Momentů šablony z Dramatiky; rozepsané a spletené zůstanou a při dalším importu se odebrané nevrátí`}
+                onClick={() => confirm(`Odebrat ${blankMoments} prázdných Momentů šablony z Dramatiky? Krok lze vrátit přes Zpět.`) && actions.editScript((d) => void clearStructure(d, 'dramatica'))}
+              >
+                − {blankMoments}
+              </button>
+            </>
+          ),
+          content: blankScenes(p, 'dramatica')
+            .filter((b) => xs[b.id] !== undefined)
+            .map((b) => <i key={b.id} className="tl-mark auto" style={{ left: cx(b.id), color: 'var(--muted)' }} title={b.title} />),
+        });
+      }
+    }
+  }
+
   // Splétání: čtyři throughlines v čase. Pruh ukazuje, kde leží Signpost; šrafa, kde throughline dlouho mlčí.
   if (p.storyform?.beats.length) {
     const w = weaveData;
@@ -565,6 +639,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
         onChange={(e) => {
           const v = e.target.value;
           if (v === 'char') return actions.addCharacter(), added('role:main');
+          if (v.startsWith('st:')) return actions.editScript((d) => toggleStructure(d, v.slice(3))), ui({ collapsed: s.collapsed.filter((k) => k !== 'structure') });
           const cat = v === 'new' ? prompt('Název nové kategorie řádků (např. Rekvizity, Místa, Symboly):')?.trim() : v;
           if (cat) addTag(cat);
         }}
@@ -579,6 +654,14 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
           <option value="new">Nová kategorie…</option>
         </optgroup>
         <option value="char">Postava</option>
+        <optgroup label="Struktura vyprávění">
+          {STRUCTURES.map((st) => (
+            <option key={st.id} value={`st:${st.id}`}>
+              {(p.structures ?? []).includes(st.id) ? '✓ ' : ''}
+              {st.name}
+            </option>
+          ))}
+        </optgroup>
       </select>
     ),
     content: null,

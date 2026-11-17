@@ -6,6 +6,7 @@ import { ColorBy, State, actions, setZoom, toggleZoomLink, ui } from '../store';
 import { COLOR_BY_LABEL, THROUGHLINE_COLOR, beatColor, tinted } from '../colors';
 import { assignStorybeats, storybeatTag } from '../dramatica';
 import { STORYBEAT_MIME } from '../Inspector';
+import { structureOf } from '../structures';
 import { Issue, brokenLinks } from '../evaluate';
 import { beatCharacters } from '../text';
 import { BeatEditor } from '../BeatEditor';
@@ -661,6 +662,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
                   >
                     <div className="card-title">
                       {b.source?.kind === 'driver' && <span className="card-tl plain">Driver</span>}
+                      {b.template && <span className="card-tl plain">{structureOf(b.template)?.short ?? b.template}</span>}
                       {b.title || <em>Bez názvu</em>}
                     </div>
                     {!mini && (b.storybeats?.length ?? 0) > 0 && (

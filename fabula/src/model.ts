@@ -188,6 +188,10 @@ export interface Beat {
   source?: DramaticaSource;
   /** Storybeaty, které scéna nese (klíče „OS/event/3“); storybeat je nejvýš v jedné scéně. */
   storybeats?: string[];
+  /** Scéna zahajuje krok struktury vyprávění: struktura → krok (např. { stc: 'midpoint' }). */
+  pins?: Record<string, string>;
+  /** Struktura vyprávění, která scénu založila jako prázdný krok. */
+  template?: string;
   /** Storypointy, které scéna ukazuje (klíče „MC/Problem“); jeden storypoint může být ve více scénách. */
   points?: string[];
 }
@@ -231,6 +235,8 @@ export interface Storyform {
   acts: Record<number, ID>;
   /** Dějství (číslo), do kterého spadá každý Signpost 1–4. */
   signpostAct: number[];
+  /** Momenty, které autor z tabule odebral; při dalším importu se nevracejí. */
+  dropped?: string[];
 }
 
 /** Předěl ve struktuře (dějství, kapitola…). */
@@ -270,6 +276,8 @@ export interface Project {
   /** Formát papíru pro stránkování a tisk. */
   paper: Paper;
   storyform?: Storyform;
+  /** Zapnutá pravítka struktur vyprávění (viz structures.ts). */
+  structures?: string[];
 }
 
 export type Paper = 'a4' | 'letter';

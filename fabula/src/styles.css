@@ -3817,3 +3817,40 @@ button.pressed {
   padding: 2px 4px;
   color: var(--muted);
 }
+
+/* ---------- Struktury vyprávění ---------- */
+.tl-slot {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--band);
+  color: var(--ink);
+  font: 11px/18px var(--sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.tl-slot:hover {
+  border-color: var(--accent);
+}
+.tl-slot:nth-child(even) {
+  background: var(--surface);
+}
+.scene-slot {
+  margin: 10px 0;
+}
+.scene-slot p {
+  margin: 2px 0 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  font-style: italic;
+}
+.scene-slot select {
+  width: 100%;
+  font-size: 12px;
+}

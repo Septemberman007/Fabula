@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { THROUGHLINES, appendDraft, assignStorybeats, pointId, pointsOf, sceneFromStorybeats, sceneOf, scenesOfPoint, storybeatTag, throughlinesOf, togglePoint, unassignStorybeat, unassigned } from './dramatica';
 import { THROUGHLINE_COLOR } from './colors';
 import type { StoryBeat, Throughline } from './model';
+import { layout, pinSlot, structureOf } from './structures';
 
 const SEVERITY_LABEL = { error: 'Chyba', warn: 'Varování', tip: 'Tip' } as const;
 
@@ -380,6 +381,28 @@ function Detail({ s, issues }: { s: State; issues: Issue[] }) {
           {b.source.kind === 'driver' && b.source.text.trim() && <DraftButton id={id} text={b.source.text} />}
         </label>
       )}
+      {(p.structures ?? []).map((sid) => {
+        const st = structureOf(sid);
+        const here = st && layout(p, st).find((x) => x.scenes.includes(id))?.slot;
+        if (!st) return null;
+        return (
+          <div className="scene-slot" key={sid}>
+            <div className="insp-kicker">
+              {st.name}
+              {here && ` · ${here.name}`}
+            </div>
+            {here && <p>{here.ask}</p>}
+            <select value={b.pins?.[sid] ?? ''} title="Posune hranici kroku: krok začne touto scénou" onChange={(e) => actions.editScript((draft) => pinSlot(draft, id, sid, e.target.value || null))}>
+              <option value="">Krok podle rozložení</option>
+              {st.slots.map((x) => (
+                <option key={x.id} value={x.id}>
+                  Touto scénou začíná: {x.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        );
+      })}
       {(p.storyform?.beats.length ?? 0) > 0 && <SceneStorybeats s={s} id={id} />}
       <div className="row">
         <label>

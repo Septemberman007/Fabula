@@ -329,3 +329,79 @@ describe('splétání, storypointy u scén a převod textu', () => {
     expect(p.beats[id(p, 0)].paras).toHaveLength(3);
   });
 });
+
+import { project } from './fixtures';
+import type { Project } from '../src/model';
+import { STRUCTURES, applyStructure, blankScenes, clearStructure, layout, pinSlot, signpostStarts, slotOf } from '../src/structures';
+
+describe('struktury vyprávění', () => {
+  const stc = STRUCTURES.find((x) => x.id === 'stc')!;
+  const plain = (n: number) => {
+    const p = project();
+    for (let i = 0; i < n; i++) p.add(`S${i}`);
+    return p;
+  };
+  const names = (p: Project, st = stc) => layout(p, st).map((x) => `${x.slot.id}:${x.scenes.map((id) => p.beats[id].title).join(',')}`);
+
+  it('příběh bez Dramatiky dělí na čtvrtiny a kroky rozloží podle vah', () => {
+    const p = plain(40);
+    expect(signpostStarts(p)).toEqual([0, 10, 20, 30]);
+    const placed = layout(p, stc);
+    expect(placed.map((x) => x.scenes.length)).toEqual([1, 1, 3, 1, 3, 1, 2, 7, 1, 5, 1, 3, 1, 9, 1]);
+    expect(placed.flatMap((x) => x.scenes)).toEqual(p.order);
+    expect(slotOf(p, stc, p.order[20])!.name).toBe('Bad Guys Close In');
+  });
+  it('scéna označená za začátek kroku posune jeho hranici; značka proti pořadí se nepoužije', () => {
+    const p = plain(40);
+    pinSlot(p, p.order[14], 'stc', 'midpoint');
+    expect(slotOf(p, stc, p.order[14])!.id).toBe('midpoint');
+    expect(slotOf(p, stc, p.order[13])!.id).toBe('fun');
+    expect(layout(p, stc).find((x) => x.slot.id === 'midpoint')!.scenes).toHaveLength(6);
+    // Krok začíná jen jednou scénou: nová značka nahradí starou.
+    pinSlot(p, p.order[16], 'stc', 'midpoint');
+    expect(p.beats[p.order[14]].pins).toEqual({});
+    // „Set-Up“ nemůže začínat až za Midpointem.
+    pinSlot(p, p.order[30], 'stc', 'setup');
+    expect(slotOf(p, stc, p.order[30])!.id).not.toBe('setup');
+    expect(layout(p, stc).flatMap((x) => x.scenes)).toEqual(p.order);
+  });
+  it('u příběhu z Dramatiky drží Signposty podle dějství', () => {
+    const moment = (id: string, act: number, order: number, storybeats: string[] = []) => ({ id, title: id, synopsis: 'x', text: '', act, order, storybeats });
+    const p = importDramatica({
+      storybeats: [sb('OS', 'signpost', 1), sb('OS', 'signpost', 2), sb('OS', 'signpost', 3), sb('OS', 'signpost', 4)],
+      moments: [moment('a', 1, 1, ['OS/signpost/1']), moment('b', 1, 2), moment('c', 2, 1, ['OS/signpost/2']), moment('d', 3, 1, ['OS/signpost/3']), moment('e', 3, 2), moment('f', 3, 3, ['OS/signpost/4']), moment('g', 3, 4)],
+      drivers: [], players: [], notes: [],
+    }, 'x');
+    expect(p.storyform!.signpostAct).toEqual([1, 2, 3, 3]);
+    expect(signpostStarts(p)).toEqual([0, 2, 3, 5]);
+    expect(names(p).filter((x) => !x.endsWith(':'))[0]).toMatch(/:a$/);
+    expect(slotOf(p, stc, Object.values(p.beats).find((b) => b.title === 'a')!.id)!.signpost).toBe(1);
+    expect(slotOf(p, stc, Object.values(p.beats).find((b) => b.title === 'f')!.id)!.signpost).toBe(4);
+  });
+  it('založí prázdné scény kroků a zase je odebere; rozepsané zůstanou', () => {
+    const p = plain(8);
+    expect(applyStructure(p, 'hj')).toBe(12);
+    expect(p.structures).toEqual(['hj']);
+    expect(applyStructure(p, 'hj')).toBe(0);
+    const hj = STRUCTURES.find((x) => x.id === 'hj')!;
+    // Každý krok teď začíná svou vlastní scénou.
+    expect(layout(p, hj).every((x) => p.beats[x.scenes[0]].title === x.slot.name)).toBe(true);
+    const ordeal = Object.values(p.beats).find((b) => b.title === 'The Ordeal')!;
+    ordeal.synopsis = 'Eva podá Viktorovi atropin.';
+    expect(blankScenes(p, 'hj')).toHaveLength(11);
+    expect(clearStructure(p, 'hj')).toBe(11);
+    expect(p.order).toHaveLength(9);
+    expect(p.beats[ordeal.id]).toBeDefined();
+  });
+  it('výměna šablony v Dramatice: prázdné Momenty staré šablony zmizí, odebrané se nevracejí', () => {
+    const moment = (id: string, synopsis = '') => ({ id, title: id, synopsis, text: '', act: 1, order: +id.slice(1), storybeats: [] as string[] });
+    const base = { storybeats: [sb('OS', 'signpost', 1)], drivers: [], players: [], notes: [] };
+    const p = importDramatica({ ...base, moments: [moment('a1'), moment('a2', 'Moje scéna'), moment('a3')] }, 'x');
+    Object.values(p.beats).find((b) => b.title === 'a3')!.storybeats = ['OS/signpost/1'];
+    mergeDramatica(p, { ...base, moments: [moment('b1'), moment('b2')] });
+    expect(titles(p)).toEqual(['[1. dějství]', 'a2', 'a3', 'b1', 'b2']);
+    expect(clearStructure(p, 'dramatica')).toBe(2);
+    mergeDramatica(p, { ...base, moments: [moment('b1'), moment('b2')] });
+    expect(titles(p)).toEqual(['[1. dějství]', 'a2', 'a3']);
+  });
+});
