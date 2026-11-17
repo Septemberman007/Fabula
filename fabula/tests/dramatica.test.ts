@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { exportDramatica, importDramatica, mergeDramatica, parseCsv, storybeatsFromCsv, storybeatsFromJson, Storybeat } from '../src/dramatica';
+import { Bundle, Storybeat, assignMoment, bundleFromNcp, exportDramatica, exportSources, importDramatica, isNcp, mergeDramatica, momentCards, momentOf, parseCsv, storybeatTag, storybeatsFromCsv, storybeatsFromJson } from '../src/dramatica';
+import { appScript } from '../src/version';
 
 const sb = (throughline: Storybeat['throughline'], scope: Storybeat['scope'], sequence: number, patch: Partial<Storybeat> = {}): Storybeat => ({
   throughline,
@@ -41,78 +42,106 @@ describe('výpis konektoru', () => {
   });
 });
 
-describe('import do Fabuly', () => {
-  it('každá throughline má linii, Signposty jsou předěly a pořadí jde napříč throughlines', () => {
-    const p = importDramatica([sb('MC', 'progression', 5), sb('OS', 'progression', 2), sb('OS', 'progression', 1), sb('MC', 'progression', 1), sb('RS', 'signpost', 1)], 'Test');
-    expect(p.lanes.map((l) => l.name)).toEqual(['Objective Story', 'Main Character', 'Influence Character', 'Relationship Story']);
-    expect(titles(p)).toEqual(['[Signpost 1]', 'OS1', 'MC1', 'RS1', 'OS2', '[Signpost 2]', 'MC5']);
-    expect(p.beats[p.order[1]].laneId).toBe(p.lanes[0].id);
+describe('jen storybeaty (CSV)', () => {
+  it('dějové linie místo throughlines, Signposty jako předěly, pořadí napříč throughlines', () => {
+    const p = importDramatica([sb('MC', 'progression', 5), sb('OS', 'progression', 2), sb('OS', 'progression', 1), sb('RS', 'progression', 1), sb('IC', 'signpost', 1)], 'Test');
+    expect(p.lanes.map((l) => l.name)).toEqual(['A story', 'B story', 'Minizápletky']);
+    expect(titles(p)).toEqual(['[Signpost 1]', 'OS1', 'IC1', 'RS1', 'OS2', '[Signpost 2]', 'MC5']);
+    const lane = (i: number) => p.lanes.find((l) => l.id === p.beats[p.order[i]].laneId)!.name;
+    expect([lane(1), lane(2), lane(3), lane(6)]).toEqual(['A story', 'B story', 'B story', 'A story']);
+    expect(p.groups).toEqual([]);
+    expect(storybeatTag(p.beats[p.order[1]].dramatica!)).toBe('OS P1');
   });
-  it('pořadí z Dramatiky má přednost', () => {
-    const p = importDramatica([sb('OS', 'progression', 1, { plotOrder: 9 }), sb('MC', 'progression', 2, { plotOrder: 3 }), sb('IC', 'progression', 1)], 'Test');
-    expect(titles(p)).toEqual(['[Signpost 1]', 'MC2', 'OS1', 'IC1']);
-  });
-  it('Signpost s Progresemi není kartou, jeho text jde do rešerše', () => {
+  it('kartou je nejpodrobnější úroveň; text nadřazené jde do rešerše', () => {
     const p = importDramatica([sb('OS', 'signpost', 1, { fn: 'Understanding', summary: 'O čem je první část' }), ...[1, 2, 3, 4].map((n) => sb('OS', 'progression', n))], 'Test');
     expect(titles(p)).toEqual(['[Signpost 1]', 'OS1', 'OS2', 'OS3', 'OS4']);
-    expect(p.groups.map((g) => g.title)).toEqual(['OS 1 · Understanding']);
-    expect(p.beats[p.order[1]].groupId).toBe(p.groups[0].id);
-    expect(p.research).toMatchObject([{ folder: 'Dramatica', title: 'Objective Story · Signpost 1 · Understanding', text: 'O čem je první část', beatIds: p.order.slice(1) }]);
+    expect(p.research).toMatchObject([{ folder: 'Dramatica', title: 'Objective Story · Signpost 1 · Understanding', text: 'O čem je první část' }]);
   });
   it('opakovaný import doplní změny a nesáhne na scénář ani na vlastní název', () => {
     const p = importDramatica([sb('OS', 'progression', 1, { summary: 'staré' }), sb('OS', 'progression', 3)], 'Test');
     const first = p.beats[p.order[1]];
     first.paras[0].text = 'Rozepsaná scéna.';
     p.beats[p.order[2]].title = 'Můj název';
-    const res = mergeDramatica(p, [sb('OS', 'progression', 1, { summary: 'nové', moments: ['Příjezd'] }), sb('OS', 'progression', 2), sb('OS', 'progression', 3)]);
-    expect(res).toEqual({ added: 1, updated: 1 });
+    expect(mergeDramatica(p, [sb('OS', 'progression', 1, { summary: 'nové' }), sb('OS', 'progression', 2), sb('OS', 'progression', 3)])).toEqual({ added: 1, updated: 1 });
     expect(titles(p)).toEqual(['[Signpost 1]', 'OS1', 'OS2', 'Můj název']);
     expect(first).toMatchObject({ synopsis: 'nové', paras: [{ text: 'Rozepsaná scéna.' }] });
-    expect(p.tags).toMatchObject([{ name: 'Příjezd', category: 'Momenty' }]);
   });
-  it('export vrátí synopse a Storytelling v pořadí vyprávění', () => {
-    const p = importDramatica([sb('MC', 'progression', 1, { uuid: 'u', storytelling: 'T' }), sb('OS', 'progression', 1)], 'Test');
-    p.beats[p.order[2]].synopsis = 'Upraveno ve Fabule';
-    expect(exportDramatica(p)).toMatchObject([
-      { throughline: 'OS', sequence: 1, plotOrder: 1 },
-      { uuid: 'u', throughline: 'MC', summary: 'Upraveno ve Fabule', storytelling: 'T', plotOrder: 2 },
+  it('číslo Signpostu bere ze sloupce Signpost a duplicitní verze sloučí', () => {
+    const csv = [
+      '"Storyform UUID","Storybeat UUID","Throughline","Scope","Signpost","Progression","Sequence","Parent UUID","Narrative Function","Summary","Storytelling"',
+      '"f","s2a","Main Character","signpost","2","","1","","Progress","První verze","Dlouze A"',
+      '"f","s2b","Main Character","signpost","2","","2","","Progress","Druhá verze","Dlouze B"',
+      '"f","e51","Objective Story","event","4","","51","","Production","Stížnost","Text události\n\nEVA Ne."',
+    ].join('\n');
+    expect(storybeatsFromCsv(csv)).toMatchObject([
+      { throughline: 'MC', scope: 'signpost', sequence: 2, uuid: 's2a', summary: 'První verze', storytelling: 'Dlouze A\n\n———\n\nDlouze B' },
+      { throughline: 'OS', scope: 'event', sequence: 51, storytelling: 'Text události\n\nEVA Ne.' },
     ]);
   });
 });
 
-describe('export z Plot Progression', () => {
-  const csv = [
-    '"Storyform UUID","Storybeat UUID","Throughline","Scope","Signpost","Progression","Sequence","Parent UUID","Narrative Function","Summary","Storytelling"',
-    '"f","s2a","Main Character","signpost","2","","1","","Progress","První verze","Dlouze A"',
-    '"f","s2b","Main Character","signpost","2","","2","","Progress","Druhá verze","Dlouze B"',
-    '"f","p13","Objective Story","progression","4","13","13","","Prerequisites","Policie","Text progrese"',
-    '"f","e51","Objective Story","event","4","","51","","Production","Stížnost","Text události\n\nEVA Ne."',
-    '"f","p14","Objective Story","progression","4","14","14","","Strategy","",""',
-    '"f","e1","Main Character","event","1","1","1","p1","Knowledge","Sanitka",""',
-    '"f","p1","Main Character","progression","1","1","1","s1","Fate","Příjezd",""',
-    '"f","e2","Main Character","event","1","1","2","p1","A","",""',
-    '"f","e3","Main Character","event","1","1","3","p1","B","",""',
-    '"f","e4","Main Character","event","1","1","4","p1","C","",""',
-  ].join('\n');
-  const all = storybeatsFromCsv(csv);
-  it('číslo Signpostu bere ze sloupce Signpost a duplicitní verze sloučí', () => {
-    expect(all.filter((x) => x.scope === 'signpost')).toMatchObject([{ throughline: 'MC', sequence: 2, uuid: 's2a', summary: 'První verze', storytelling: 'Dlouze A\n\n———\n\nDlouze B' }]);
+describe('Momenty', () => {
+  const moment = (id: string, act: number, order: number, storybeats: string[] = [], synopsis = ''): Bundle['moments'][number] => ({ id, title: id, synopsis, text: '', act, order, storybeats });
+  const bundle = (): Bundle => ({
+    storybeats: [sb('OS', 'signpost', 1), sb('OS', 'progression', 1), sb('MC', 'event', 1), sb('RS', 'signpost', 2), sb('IC', 'signpost', 2), sb('OS', 'progression', 9)],
+    moments: [moment('Zlom', 2, 1, ['RS/signpost/2', 'IC/signpost/2']), moment('Příjezd', 1, 2, ['OS/progression/1', 'MC/event/1'], 'Sanitka.'), moment('Úvod', 1, 1), moment('Finále', 3, 1)],
+    drivers: [0, 1, 2, 3, 4].map((index) => ({ id: `d${index}`, index, summary: '', storytelling: `Driver ${index}` })),
+    players: [],
+    notes: [],
   });
-  it('kartou je nejpodrobnější úroveň; Progrese s úplnými Událostmi je jen skupina', () => {
-    const p = importDramatica(all, 'Test');
-    expect(titles(p)).toEqual(['[Signpost 1]', 'Knowledge', 'A', 'B', 'C', '[Signpost 2]', 'Progress', '[Signpost 4]', 'Prerequisites', 'Production', 'Strategy']);
-    const g = (id: string) => p.groups.find((x) => x.id === p.beats[id].groupId)!;
-    expect(g(p.order[1]).title).toBe('MC P1 · Fate');
-    expect(p.groups.find((x) => x.id === g(p.order[1]).parentId)!.title).toBe('MC 1');
-    expect(g(p.order[8]).title).toBe('OS 4');
-    expect(g(p.order[9]).title).toBe('OS P13 · Prerequisites');
-    expect(p.research.map((r) => r.title)).toEqual(['Main Character · Progression 1 · Fate']);
-    expect(p.beats[p.order[9]].dramatica).toMatchObject({ uuid: 'e51', storytelling: 'Text události\n\nEVA Ne.' });
+  const lane = (p: ReturnType<typeof importDramatica>, id: string) => p.lanes.find((l) => l.id === p.beats[id].laneId)!.name;
+
+  it('Moment je karta s blokem storybeatů v pořadí; nepřiřazené leží vyřazené tam, kam v čase patří', () => {
+    const p = importDramatica(bundle(), 'x');
+    expect(titles(p)).toEqual([
+      '[1. dějství]', 'Initial Story Driver', 'OS1', 'Úvod', 'Příjezd', 'OS1', 'MC1', 'Second Story Driver',
+      '[2. dějství]', 'Zlom', 'RS2', 'IC2', 'Midpoint Story Driver', 'OS9', 'Fourth Story Driver',
+      '[3. dějství]', 'Finále', 'Concluding Story Driver',
+    ]);
+    const [, , sign, uvod, prijezd, os1, mc1] = p.order;
+    // Signpost 1 patří na začátek prvního dějství, Progrese 9 (začátek Signpostu 3) doprostřed druhého.
+    expect([p.beats[sign].dramatica!.scope, p.beats[sign].off, p.beats[p.order[13]].off]).toEqual(['signpost', true, true]);
+    expect(p.beats[uvod].groupId).toBeNull();
+    expect(p.groups.find((g) => g.id === p.beats[prijezd].groupId)!.title).toBe('Příjezd');
+    expect([p.beats[os1].groupId, p.beats[mc1].groupId]).toEqual([p.beats[prijezd].groupId, p.beats[prijezd].groupId]);
+    expect(p.beats[prijezd]).toMatchObject({ synopsis: 'Sanitka.', source: { kind: 'moment' } });
+    // Moment se storybeaty jen ze vztahu a vlivové postavy začíná v B story.
+    expect([lane(p, prijezd), lane(p, p.order[9]), lane(p, p.order[10])]).toEqual(['A story', 'B story', 'B story']);
+    expect(p.order.filter((id) => p.beats[id]?.off)).toHaveLength(2);
+  });
+  it('storybeat je jen v jednom Momentu', () => {
+    const b = bundle();
+    b.moments.push(moment('Druhý', 2, 2, ['RS/signpost/2']));
+    const p = importDramatica(b, 'x');
+    expect(Object.values(p.beats).filter((x) => x.dramatica?.throughline === 'RS')).toHaveLength(1);
+    expect(p.beats[p.order[p.order.findIndex((id) => p.beats[id]?.title === 'Druhý')]].groupId).toBeNull();
+  });
+  it('přiřazení nepřiřazeného do Momentu a zpět', () => {
+    const p = importDramatica(bundle(), 'x');
+    const os9 = p.order.find((id) => p.beats[id]?.dramatica?.sequence === 9)!;
+    const finale = momentCards(p).find((m) => m.title === 'Finále')!;
+    assignMoment(p, os9, finale.id);
+    expect(p.beats[os9]).toMatchObject({ off: false, groupId: finale.groupId });
+    expect(momentOf(p, p.beats[os9])!.id).toBe(finale.id);
+    expect(titles(p).slice(-4)).toEqual(['[3. dějství]', 'Finále', 'OS9', 'Concluding Story Driver']);
+    assignMoment(p, os9, null);
+    expect(p.beats[os9]).toMatchObject({ off: true, groupId: null });
+    expect(titles(p).slice(-4)).toEqual(['[3. dějství]', 'Finále', 'OS9', 'Concluding Story Driver']);
+  });
+  it('opakovaný import nic nezdvojí ani nepřesune; export nese pořadí a složení Momentů', () => {
+    const p = importDramatica(bundle(), 'x');
+    const os9 = p.order.find((id) => p.beats[id]?.dramatica?.sequence === 9)!;
+    assignMoment(p, os9, momentCards(p)[0].id);
+    const before = [...p.order];
+    expect(mergeDramatica(p, bundle())).toEqual({ added: 0, updated: 0 });
+    expect(p.order).toEqual(before);
+    const out = exportSources(p);
+    expect(out.map((x) => x.title)).toEqual(['Initial Story Driver', 'Úvod', 'Příjezd', 'Second Story Driver', 'Zlom', 'Midpoint Story Driver', 'Fourth Story Driver', 'Finále', 'Concluding Story Driver']);
+    expect(out[1].storybeats).toEqual(['OS/progression/9']);
+    expect(out[2].storybeats).toEqual(['OS/progression/1', 'MC/event/1']);
+    expect(exportDramatica(p).filter((x) => x.plotOrder === null).map((x) => x.sequence)).toEqual([1]);
   });
 });
-
-import { bundleFromNcp, exportSources, isNcp, linkScene, throughlineOf } from '../src/dramatica';
-import { appScript } from '../src/version';
 
 describe('soubor NCP', () => {
   const ncp = {
@@ -122,12 +151,10 @@ describe('soubor NCP', () => {
         stories: [
           {
             moments: [
-              { id: 'm0', act: 1, order: 1, summary: 'Untitled', synopsis: '', setting: '', timing: '', imperatives: '', storybeats: [] },
-              { id: 'm2', act: 1, order: 3, summary: 'V sanitce', synopsis: 'Jedou mlčky.', setting: 'Sanitka', timing: 'Ráno', imperatives: '', storybeats: [{ storybeat_id: 'e1' }] },
-              { id: 'm1', act: 1, order: 2, summary: 'Krajina', synopsis: 'Mlha.', setting: '', timing: '', imperatives: '', storybeats: [] },
-              { id: 'm3', act: 1, order: 4, summary: 'Brána', synopsis: 'Projedou.', setting: '', timing: '', imperatives: '', storybeats: [] },
-              { id: 'm9', act: 3, order: 1, summary: 'Konec', synopsis: 'Terasa.', setting: '', timing: '', imperatives: '', storybeats: [] },
-              { id: 't', act: 2, order: 1, summary: 'Turning Up the Pressure', synopsis: '', setting: '', timing: '', imperatives: '', storybeats: [{ storybeat_id: 's2' }] },
+              { id: 'm0', act: 1, order: 1, summary: 'Untitled', synopsis: '', setting: '', timing: '', imperatives: '', storybeats: [{ storybeat_id: 'neznámý' }] },
+              { id: 'm2', act: 1, order: 3, summary: 'V sanitce', synopsis: 'Jedou mlčky.', setting: 'Sanitka', timing: 'Ráno', imperatives: '', storybeats: [{ sequence: 1, storybeat_id: 'o1' }, { sequence: 0, storybeat_id: 'e1' }] },
+              { id: 't1', act: 2, order: 1, summary: 'One Last Push', synopsis: '', setting: '', timing: '', imperatives: '', storybeats: [{ storybeat_id: 's2' }] },
+              { id: 't2', act: 2, order: 1, summary: 'One Last Push', synopsis: '', setting: '', timing: '', imperatives: '', storybeats: [{ storybeat_id: 's2' }] },
             ],
           },
         ],
@@ -143,8 +170,8 @@ describe('soubor NCP', () => {
                 ],
                 dynamics: [
                   { id: 'd1', dynamic: 'story_outcome', vector: 'failure', summary: 'Režim přežije.', storytelling: '' },
+                  { id: 'd5', dynamic: 'main_character_approach', vector: 'do_er', summary: '', storytelling: '' },
                   { id: 'd2', dynamic: 'initial_story_driver', vector: 'Action', summary: 'Uklízečka najde muže.', storytelling: 'Nad ránem…' },
-                  { id: 'd3', dynamic: 'midpoint_story_driver', vector: 'Action', summary: 'Odhalení.', storytelling: '' },
                   { id: 'd4', dynamic: 'fourth_story_driver', vector: 'Action', summary: '', storytelling: '' },
                 ],
                 storypoints: [
@@ -164,56 +191,29 @@ describe('soubor NCP', () => {
     },
   };
   const bundle = bundleFromNcp(ncp);
-  it('pozná formát a vynechá prázdné předpřipravené Momenty', () => {
+  it('pozná formát, vezme i šablonové Momenty a zdvojené sloučí', () => {
     expect(isNcp(ncp)).toBe(true);
     expect(isNcp({ format: 2 })).toBe(false);
     expect(bundle.title).toBe('Příběh');
-    expect(bundle.moments.map((m) => m.id)).toEqual(['m2', 'm1', 'm3', 'm9']);
-    expect(bundle.moments[0]).toMatchObject({ storybeat: 'MC/event/1', text: 'Místo: Sanitka\nČas: Ráno' });
-    expect(bundle.drivers.map((d) => d.index)).toEqual([0, 2]);
-  });
-  it('scény jdou v pořadí Momentů, Drivery na hranice Signpostů', () => {
-    const p = importDramatica(bundle, 'x');
-    expect(titles(p)).toEqual([
-      '[Signpost 1]', 'Initial Story Driver', 'Krajina', 'Instinct', 'V sanitce', 'Brána',
-      '[Signpost 2]', 'Doing', 'Midpoint Story Driver',
-      '[Signpost 3]',
-      '[Signpost 4]', 'Konec',
+    expect(bundle.moments).toMatchObject([
+      { id: 'm2', title: 'V sanitce', text: 'Místo: Sanitka\nČas: Ráno', storybeats: ['MC/event/1', 'OS/progression/1'] },
+      { id: 't1', title: 'One Last Push', act: 2, storybeats: ['OS/signpost/2'] },
     ]);
-    const lane = (i: number) => p.lanes.find((l) => l.id === p.beats[p.order[i]].laneId)!.name;
-    expect([lane(1), lane(2), lane(4), lane(5)]).toEqual(['Objective Story', 'Scény', 'Main Character', 'Scény']);
-    // Jediný Moment storybeatu splyne s jeho kartou: název a synopse scény, Storytelling storybeatu.
-    expect(p.beats[p.order[4]]).toMatchObject({ synopsis: 'Jedou mlčky.', dramatica: { uuid: 'e1', storytelling: 'Dlouze' }, source: { id: 'm2', kind: 'moment' } });
-    expect(p.beats[p.order[1]].source).toMatchObject({ kind: 'driver', text: 'Nad ránem…' });
+    expect(bundle.drivers.map((d) => d.index)).toEqual([0]);
   });
-  it('postavy jdou do obsazení, storypointy a dynamika do rešerše', () => {
+  it('postaví tabuli, obsazení, rešerši i storyform', () => {
     const p = importDramatica(bundle, 'x');
+    expect(titles(p)).toEqual(['[1. dějství]', 'Initial Story Driver', 'V sanitce', 'Knowledge', 'Instinct', '[2. dějství]', 'One Last Push', 'Doing']);
     expect(p.characters.map((c) => [c.name, c.role, c.aliases])).toEqual([['Eva Horáková', 'main', 'Eva'], ['Zuzana', 'secondary', ''], ['Jan Veselý', 'small', 'Jan']]);
     expect(p.research.map((r) => `${r.folder}/${r.title}`)).toEqual(['Postavy/Eva Horáková', 'Postavy/Zuzana', 'Dramatica/Logline']);
     expect(p.storyform!.points).toEqual([
       { throughline: '', name: 'Story Goal', fn: 'Understanding', summary: 'Pochopit domov.', text: '' },
       { throughline: 'MC', name: 'Problem', fn: 'Inequity', summary: 'Vina.', text: 'Podrobně.' },
     ]);
-    expect(p.storyform!.dynamics).toEqual([{ name: 'Story Outcome', value: 'Failure', summary: 'Režim přežije.' }]);
-    expect(p.storyform!.beats.map((x) => x.key)).toEqual(['OS/progression/1', 'OS/signpost/2', 'MC/event/1']);
-  });
-  it('scénu jde přiřadit ke storybeatu: přejde do jeho linie a skupiny', () => {
-    const p = importDramatica(bundle, 'x');
-    const scene = p.order.map((id) => p.beats[id]).find((b) => b?.title === 'Brána')!;
-    linkScene(p, scene.id, 'OS/progression/1');
-    expect(p.lanes.find((l) => l.id === scene.laneId)!.name).toBe('Objective Story');
-    expect(p.groups.find((g) => g.id === scene.groupId)!.title).toBe('OS 1');
-    expect(throughlineOf(p, scene)).toBe('OS');
-    expect(exportSources(p).find((x) => x.id === 'm3')!.storybeat).toBe('o1');
-    linkScene(p, scene.id, null);
-    expect(scene.storybeat).toBeUndefined();
-  });
-  it('opakovaný import nic nezdvojí a export vrátí pořadí scén', () => {
-    const p = importDramatica(bundle, 'x');
-    const before = p.order.length;
-    expect(mergeDramatica(p, bundle).added).toBe(0);
-    expect([p.order.length, p.characters.length, p.research.length]).toEqual([before, 3, 3]);
-    expect(exportSources(p).map((x) => x.id)).toEqual(['d2', 'm1', 'm2', 'm3', 'd3', 'm9']);
+    expect(p.storyform!.dynamics).toEqual([
+      { name: 'Story Outcome', value: 'Failure', summary: 'Režim přežije.' },
+      { name: 'Main Character Approach', value: 'Do-er', summary: '' },
+    ]);
   });
 });
 

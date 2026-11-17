@@ -483,7 +483,18 @@ export function useSurface(root: RefObject<HTMLDivElement>, wrap: RefObject<HTML
       if (!at) return;
       const s = segOf(at.el);
       setCur((c) => (s.kind !== 'para' ? null : c?.paraId === s.paraId ? c : { beatId: s.beatId, paraId: s.paraId! }));
-      if (follow && getState().selected !== s.beatId) ui({ selected: s.beatId, tab: 'detail' });
+      if (!follow) return;
+      // Výběr textu přes několik beatů je zároveň výběrem těch beatů na tabuli a časové ose.
+      const beatOf = (n: Node | null) => (n instanceof Element ? n : n?.parentElement)?.closest<HTMLElement>('[data-script-beat]') ?? null;
+      const [a, b] = [beatOf(sel.anchorNode), beatOf(sel.focusNode)];
+      let span: string[] = [];
+      if (a && b && a !== b && el.contains(a)) {
+        const all = [...el.querySelectorAll<HTMLElement>('[data-script-beat]')];
+        const [i, j] = [all.indexOf(a), all.indexOf(b)].sort((x, y) => x - y);
+        span = all.slice(i, j + 1).map((x) => x.dataset.scriptBeat!);
+      }
+      const st = getState();
+      if (st.selected !== s.beatId || span.join() !== st.multi.join()) ui({ selected: s.beatId, multi: span, tab: 'detail' });
     };
     document.addEventListener('selectionchange', onSel);
     onSel();

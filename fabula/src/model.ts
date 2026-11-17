@@ -188,8 +188,6 @@ export interface Beat {
   dramatica?: DramaticaRef;
   /** Moment nebo Story Driver z Dramatiky, ze kterého beat vznikl. */
   source?: DramaticaSource;
-  /** Storybeat, který tato scéna vypráví (klíč „OS/event/3“); u karty storybeatu samotné se nevyplňuje. */
-  storybeat?: string;
 }
 
 /** Storyform z Dramatiky: to, co se v čase nemění, a seznam storybeatů, ke kterým jde přiřadit scénu. */

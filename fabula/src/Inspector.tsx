@@ -3,7 +3,7 @@ import { State, Tab, actions, ui } from './store';
 import { Issue } from './evaluate';
 import { detectedCharacters, unknownSpeakers } from './text';
 import { eighths, pageRange, paginate } from './paginate';
-import { THROUGHLINES, linkScene, storybeatLabel, throughlineOf } from './dramatica';
+import { THROUGHLINES, assignMoment, momentCards, momentOf, storybeatTag } from './dramatica';
 
 const SEVERITY_LABEL = { error: 'Chyba', warn: 'Varování', tip: 'Tip' } as const;
 
@@ -41,7 +41,7 @@ function StoryformPanel({ s }: { s: State }) {
   const p = s.project;
   const sf = p.storyform!;
   const b = s.selected ? p.beats[s.selected] : null;
-  const current = b ? throughlineOf(p, b) : null;
+  const current = b?.dramatica?.throughline ?? null;
   const point = (x: (typeof sf.points)[number], i: number) => (
     <div className="sf-point" key={i}>
       <b>{x.name}</b>
@@ -170,7 +170,7 @@ function Detail({ s, issues }: { s: State; issues: Issue[] }) {
       )}
       {b.dramatica && (
         <label>
-          Dramatica · {b.dramatica.throughline} {b.dramatica.scope === 'signpost' ? 'Signpost' : b.dramatica.scope === 'progression' ? 'Progression' : 'Event'} {b.dramatica.sequence}
+          Dramatica · {storybeatTag(b.dramatica)}
           {b.dramatica.fn && ` · ${b.dramatica.fn}`}
           <textarea
             rows={6}
@@ -180,21 +180,19 @@ function Detail({ s, issues }: { s: State; issues: Issue[] }) {
           />
         </label>
       )}
-      {!b.dramatica && (p.storyform?.beats.length ?? 0) > 0 && (
+      {b.source?.kind !== 'moment' && momentCards(p).length > 0 && (
         <label>
-          Vypráví storybeat
-          <select value={b.storybeat ?? ''} onChange={(e) => actions.editScript((draft) => linkScene(draft, id, e.target.value || null))} title="Scéna se přesune do linie a skupiny svého storybeatu">
-            <option value="">— nepřiřazeno —</option>
-            {THROUGHLINES.map((t) => (
-              <optgroup key={t.key} label={t.name}>
-                {p.storyform!.beats
-                  .filter((x) => x.throughline === t.key)
-                  .map((x) => (
-                    <option key={x.key} value={x.key}>
-                      {storybeatLabel(x)}
-                    </option>
-                  ))}
-              </optgroup>
+          Patří do Momentu
+          <select
+            value={momentOf(p, b)?.id ?? ''}
+            title="Beat se zařadí na konec Momentu; bez Momentu se odloží mezi nepřiřazené a do scénáře se nepočítá"
+            onChange={(e) => actions.editScript((draft) => assignMoment(draft, id, e.target.value || null))}
+          >
+            <option value="">{b.off ? '— nepřiřazeno —' : '— žádný —'}</option>
+            {momentCards(p).map((m, i) => (
+              <option key={m.id} value={m.id}>
+                {i + 1}. {m.title || 'Bez názvu'}
+              </option>
             ))}
           </select>
         </label>

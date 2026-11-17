@@ -284,7 +284,7 @@ export function Script({ s, matches, zoomable, onHide }: { s: State; matches: Se
               beat={b}
               n={n}
               laneColor={laneColor.get(b.laneId)}
-              selected={s.selected === id}
+              selected={s.selected === id || s.multi.includes(id)}
               folded={folded.has(id)}
               tags={p.tags}
               sceneBase={base}

@@ -3587,3 +3587,22 @@ button.pressed {
   border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
+
+/* Štítek storybeatu, Momentu nebo Story Driveru na kartě. */
+.card-tl {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 5px;
+  border-radius: 3px;
+  color: #fff;
+  font: 600 10px/15px var(--sans);
+  letter-spacing: 0.02em;
+  vertical-align: 2px;
+  white-space: nowrap;
+}
+.card-tl.plain {
+  background: none;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  line-height: 13px;
+}

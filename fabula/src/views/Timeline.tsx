@@ -1,4 +1,4 @@
-import { MouseEvent, PointerEvent, ReactNode, memo, useEffect, useMemo, useRef } from 'react';
+import { MouseEvent, PointerEvent, ReactNode, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { CharRole, Character, Group, ID, ROLE_LABEL, TAG_MODE_LABEL, Tag, beatName, groupBeats, tagCategories } from '../model';
 import { hasText } from '../text';
 import { ColorBy, State, actions, setZoom, toggleZoomLink, ui } from '../store';
@@ -141,7 +141,56 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
     const f = fitZoom('timeline', s.zoomLink);
     if (f) setZoom(f.which, f.value);
   };
-  const sel = (id: ID) => ui({ selected: id, multi: [], tab: 'detail' });
+  const picked = new Set(s.multi.length ? s.multi : s.selected ? [s.selected] : []);
+  /** Právě skončilo tažení výběru: následné kliknutí se nepočítá. */
+  const dragged = useRef(false);
+  /**
+   * Výběr beatu. S ⌘ nebo Ctrl se beat k výběru přidá či z něj odebere, se Shiftem se vybere
+   * celý úsek od naposledy vybraného beatu. Výběr je společný s tabulí i scénářem.
+   */
+  const sel = (id: ID, e?: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => {
+    if (dragged.current) return;
+    if (e?.shiftKey && s.selected && p.beats[s.selected] && s.selected !== id) {
+      const [a, b] = [beats.indexOf(s.selected), beats.indexOf(id)].sort((x, y) => x - y);
+      const base = s.multi.length ? s.multi : [s.selected];
+      const next = [...new Set([...base, ...beats.slice(a, b + 1)])];
+      return ui({ multi: next, selected: id, tab: 'detail' });
+    }
+    if (e?.metaKey || e?.ctrlKey) {
+      const base = s.multi.length ? s.multi : s.selected && p.beats[s.selected] ? [s.selected] : [];
+      const next = base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
+      return ui({ multi: next.length > 1 ? next : [], selected: next.at(-1) ?? null, tab: 'detail' });
+    }
+    ui({ selected: id, multi: [], tab: 'detail' });
+  };
+  /** Tažením po beatech se vybere úsek osy. */
+  const [band, setBand] = useState<{ x0: number; x1: number } | null>(null);
+  const startBand = (e: MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || !(e.target as HTMLElement).closest('.tl-beat, .tl-col, .tl-num')) return;
+    const canvas = e.currentTarget;
+    const at = (ev: { clientX: number }) => ev.clientX - canvas.getBoundingClientRect().left;
+    const x0 = at(e);
+    let moved = false;
+    const move = (ev: globalThis.MouseEvent) => {
+      if (!moved && Math.abs(at(ev) - x0) < 6) return;
+      moved = true;
+      ev.preventDefault();
+      setBand({ x0, x1: at(ev) });
+    };
+    const up = (ev: globalThis.MouseEvent) => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      setBand(null);
+      if (!moved) return;
+      const [l, r] = [x0, at(ev)].sort((a, b) => a - b);
+      const ids = beats.filter((id) => xs[id] < r && xs[id] + ws[id] > l);
+      dragged.current = true;
+      setTimeout(() => (dragged.current = false));
+      ui({ multi: ids.length > 1 ? ids : [], selected: ids.at(-1) ?? null, tab: 'detail' });
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
   /** Beat, do jehož sloupce se kliklo (řádek má jedinou klikací vrstvu přes celou šířku). */
   const beatAt = (e: MouseEvent<HTMLElement>) => {
     const x = e.nativeEvent.offsetX;
@@ -355,7 +404,7 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
           className="tl-beat"
           style={{ left: xs[id] + gap, width: Math.max(1, ws[id] - 2 * gap - (dense ? 0.5 : 0)), background: beatColor(p, p.beats[id], s.colorBy) }}
           title={`${beatName(p, id)}${p.beats[id].synopsis ? ' – ' + p.beats[id].synopsis : ''}`}
-          onClick={() => sel(id)}
+          onClick={(e) => sel(id, e)}
         >
           {beatName(p, id)}
         </span>
@@ -452,13 +501,14 @@ export const Timeline = memo(function Timeline({ s, matches }: { s: State; match
       </div>
 
       <div className="tl-scroll" ref={scroller}>
-        <div className="tl-canvas" style={{ width: width + EXTRA }}>
+        <div className="tl-canvas" style={{ width: width + EXTRA }} onMouseDown={startBand}>
+          {band && <div className="band" style={{ left: Math.min(band.x0, band.x1), width: Math.abs(band.x1 - band.x0), top: 0, bottom: 0 }} />}
           {beats.map((id) => (
             <div
               key={id}
-              className={`tl-col${s.selected === id ? ' selected' : ''}${matches && !matches.has(id) ? ' out' : ''}`}
+              className={`tl-col${picked.has(id) ? ' selected' : ''}${matches && !matches.has(id) ? ' out' : ''}`}
               style={{ left: xs[id], width: ws[id] }}
-              onClick={() => sel(id)}
+              onClick={(e) => sel(id, e)}
             />
           ))}
           {breaks.map((id) => (

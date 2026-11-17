@@ -12,7 +12,7 @@ import { Reports } from './views/Reports';
 import { Backup, PANES_DEFAULT, Panes, loadBackups } from './local';
 import { Splitter } from './Splitter';
 import { loadNewVersion, useNewVersion } from './version';
-import { Bundle, bundleFromNcp, exportDramatica, exportSources, importDramatica, isNcp, mergeDramatica, storybeatsFromCsv, storybeatsFromJson } from './dramatica';
+import { Bundle, STORY_LANES, bundleFromNcp, exportDramatica, exportSources, importDramatica, isNcp, mergeDramatica, storybeatsFromCsv, storybeatsFromJson } from './dramatica';
 import { chooseFolder, listSaved, saveNow, setMinutes, turnOff, unlock, useSaveState } from './autosave';
 import { Inspector } from './Inspector';
 
@@ -335,7 +335,8 @@ export function App() {
   const openDramatica = (bundle: Bundle, fileName: string) => {
     if (!bundle.storybeats.length && !bundle.moments.length)
       return alert('V souboru jsem nenašel žádné storybeaty. Potřebuju sloupce s throughline, úrovní (Signpost, Progression, Event) a pořadím.');
-    if (Object.values(p.beats).some(fromDramatica)) {
+    // Doplňuje se jen do příběhu v dnešním rozložení (dějové linie); starší import se nahradí novým.
+    if (Object.values(p.beats).some(fromDramatica) && p.lanes.some((l) => l.name === STORY_LANES[0].name)) {
       let res = { added: 0, updated: 0 };
       actions.editScript((draft) => void (res = mergeDramatica(draft, bundle)));
       alert(`Z Dramatiky doplněno: ${res.added} nových beatů, ${res.updated} změněných. Text scénáře zůstal, jak byl; krok lze vrátit přes Zpět.`);
@@ -377,7 +378,7 @@ export function App() {
         <input className="project-title" value={p.title} onChange={(e) => actions.setTitle(e.target.value)} aria-label="Název příběhu" />
         <nav className="views">
           {VIEWS.map(([id, label]) => (
-            <button key={id} className={s.view === id ? 'on' : ''} onClick={() => ui({ view: id, linkFrom: null, multi: id === 'board' || id === 'all' ? s.multi : [] })}>
+            <button key={id} className={s.view === id ? 'on' : ''} onClick={() => ui({ view: id, linkFrom: null, multi: id === 'board' || id === 'all' || id === 'timeline' || id === 'script' ? s.multi : [] })}>
               {label}
             </button>
           ))}

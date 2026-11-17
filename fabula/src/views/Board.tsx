@@ -3,7 +3,8 @@ import { PANES_DEFAULT } from '../local';
 import { DragEvent, MouseEvent, PointerEvent, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { BoardNote, ID, NOTE_COLORS, Project, STATUS_LABEL, beatName, beatNumber, groupBeats } from '../model';
 import { ColorBy, State, actions, setZoom, toggleZoomLink, ui } from '../store';
-import { COLOR_BY_LABEL, beatColor, tinted } from '../colors';
+import { COLOR_BY_LABEL, THROUGHLINE_COLOR, beatColor, tinted } from '../colors';
+import { storybeatTag } from '../dramatica';
 import { Issue, brokenLinks } from '../evaluate';
 import { beatCharacters } from '../text';
 import { BeatEditor } from '../BeatEditor';
@@ -635,7 +636,15 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
                     onDragEnd={() => (setDragId(null), setDrop(null))}
                     onClick={(e) => (e.stopPropagation(), clickBeat(id, e))}
                   >
-                    <div className="card-title">{b.title || <em>Bez názvu</em>}</div>
+                    <div className="card-title">
+                      {b.dramatica && (
+                        <span className="card-tl" style={{ background: THROUGHLINE_COLOR[b.dramatica.throughline] }} title="Storybeat z Dramatiky">
+                          {storybeatTag(b.dramatica)}
+                        </span>
+                      )}
+                      {b.source && <span className="card-tl plain">{b.source.kind === 'moment' ? 'Moment' : 'Driver'}</span>}
+                      {b.title || <em>Bez názvu</em>}
+                    </div>
                     <div className="card-syn">{b.synopsis}</div>
                     <div className="card-foot">
                       <span className="dots">
