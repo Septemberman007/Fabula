@@ -1,4 +1,4 @@
-import type { Beat, CharRole, DramaticaRef, ID, Project, Storyform, StorybeatScope, Throughline } from './model';
+import type { Beat, CharRole, ID, Project, StoryBeat, Storyform, StorybeatScope, Throughline } from './model';
 import { PALETTE, newBeat, uid } from './model';
 import { THROUGHLINE_COLOR } from './colors';
 
@@ -62,6 +62,8 @@ export interface Bundle {
   notes: { folder: string; title: string; text: string }[];
   /** Storypointy a dynamika příběhu. */
   storyform?: Pick<Storyform, 'points' | 'dynamics'>;
+  /** Identifikátor storyformu v Dramatice. */
+  storyformId?: string;
 }
 const DRIVERS = ['Initial Story Driver', 'Second Story Driver', 'Midpoint Story Driver', 'Fourth Story Driver', 'Concluding Story Driver'];
 
@@ -172,21 +174,23 @@ export function storybeatsFromCsv(src: string): Storybeat[] {
   return unique(rows.map((r) => make(Object.fromEntries([...at].map(([k, i]) => [k, r[i]])))).filter((x): x is Storybeat => !!x));
 }
 
-/** Tentýž storybeat uložený vícekrát (starší verze Signpostů) se sloučí: rozdílné texty zůstanou oba. */
+/** Identifikátor storyformu ze sloupce „Storyform UUID“. */
+export function csvStoryformId(src: string): string | undefined {
+  const [head, first] = parseCsv(src);
+  const i = head?.findIndex((h) => /^storyform.?(uu)?id$/i.test(h.trim())) ?? -1;
+  return (i >= 0 && first?.[i]?.trim()) || undefined;
+}
+
+/**
+ * Tentýž storybeat uložený vícekrát (starší verze Signpostů): platí ta s delším textem. Texty se neslučují,
+ * aby se zpět do Dramatiky nezapsalo něco, co tam nikdy nebylo.
+ */
 function unique(all: Storybeat[]): Storybeat[] {
   const out = new Map<string, Storybeat>();
+  const weight = (x: Storybeat) => x.storytelling.length + x.summary.length;
   for (const sb of all) {
     const old = out.get(key(sb));
-    if (!old) out.set(key(sb), { ...sb });
-    else {
-      const join = (a: string, b: string, sep: string) => (!a || a === b ? b || a : !b ? a : `${a}${sep}${b}`);
-      old.summary = old.summary || sb.summary;
-      old.storytelling = join(old.storytelling, sb.storytelling, '\n\n———\n\n');
-      old.fn = old.fn || sb.fn;
-      old.uuid = old.uuid ?? sb.uuid;
-      old.plotOrder = old.plotOrder ?? sb.plotOrder;
-      old.moments = [...new Set([...old.moments, ...sb.moments])];
-    }
+    if (!old || weight(sb) > weight(old)) out.set(key(sb), { ...sb, plotOrder: sb.plotOrder ?? old?.plotOrder ?? null });
   }
   return [...out.values()];
 }
@@ -195,7 +199,7 @@ function unique(all: Storybeat[]): Storybeat[] {
 
 /** Storybeaty z JSON, který vrací konektor Dramatiky (hledají se kdekoli ve struktuře). */
 export function storybeatsFromJson(data: unknown): Storybeat[] {
-  const out = new Map<string, Storybeat>();
+  const out: Storybeat[] = [];
   const walk = (x: any) => {
     if (!x || typeof x !== 'object') return;
     if (Array.isArray(x)) return x.forEach(walk);
@@ -204,6 +208,7 @@ export function storybeatsFromJson(data: unknown): Storybeat[] {
         uuid: x.uuid,
         throughline: x.throughline,
         scope: x.scope,
+        signpost: x.signpost,
         sequence: x.sequence,
         fn: x.narrative_function?.name ?? x.narrative_function ?? x.fn,
         summary: x.summary,
@@ -212,13 +217,13 @@ export function storybeatsFromJson(data: unknown): Storybeat[] {
         appreciation: x.appreciation?.name ?? x.appreciation,
         moments: (x.moments ?? []).map((m: any) => m?.title ?? m).join('|'),
       });
-      if (sb) out.set(key(sb), sb);
+      if (sb) out.push(sb);
       return;
     }
     Object.values(x).forEach(walk);
   };
   walk(data);
-  return unique([...out.values()]);
+  return unique(out);
 }
 
 // ---------- Čtení souboru NCP (celý storyform) ----------
@@ -300,12 +305,39 @@ export function bundleFromNcp(data: any): Bundle {
       summary: text(x.summary),
       text: text(x.storytelling),
     };
-    if (point.name && !points.some((y) => JSON.stringify(y) === JSON.stringify(point))) points.push(point);
+    // Story Goal a spol. bývají uloženy dvakrát, jednou bez throughline: stačí jednou.
+    if (point.name && !points.some((y) => y.name === point.name && y.fn === point.fn && y.summary === point.summary && y.text === point.text)) points.push(point);
   }
   const notes = Object.values<any>(form.narrative?.storytelling?.overviews ?? {})
     .map((o) => ({ folder: 'Dramatica', title: text(o.label || o.name), text: [o.summary, o.storytelling].map(text).filter(Boolean).join('\n\n') }))
     .filter((o) => o.title && o.text);
-  return { title: text(data.story?.title) || undefined, storybeats: unique(beats), moments, drivers, players, notes, storyform: { points, dynamics } };
+  const formId = text(form.id) || text(form.narrative?.id).replace(/^narrative_/, '') || undefined;
+  return { title: text(data.story?.title) || undefined, storybeats: unique(beats), moments: splitActs(moments, unique(beats)), drivers, players, notes, storyform: { points, dynamics }, storyformId: formId };
+}
+
+/**
+ * Dramatica někdy uloží dvě řady Momentů pod stejné číslo dějství (každá čísluje pořadí od nuly). Řady se rozdělí
+ * na samostatná dějství a seřadí podle Signpostů svých storybeatů, aby se scény dvou částí nepromíchaly.
+ */
+function splitActs(moments: Moment[], beats: Storybeat[]): Moment[] {
+  const sp = new Map(beats.map((x) => [key(x), signpostOf(x)]));
+  const parts: { act: number; chain: number; list: Moment[] }[] = [];
+  for (const act of [...new Set(moments.map((m) => m.act))].sort((a, b) => a - b)) {
+    const seen = new Map<number, number>();
+    for (const m of moments.filter((x) => x.act === act).sort((a, b) => a.order - b.order)) {
+      const chain = seen.get(m.order) ?? 0;
+      seen.set(m.order, chain + 1);
+      let part = parts.find((x) => x.act === act && x.chain === chain);
+      if (!part) parts.push((part = { act, chain, list: [] }));
+      part.list.push(m);
+    }
+  }
+  const weight = (list: Moment[]) => {
+    const all = list.flatMap((m) => m.storybeats.map((k) => sp.get(k) ?? 0)).filter(Boolean);
+    return all.length ? all.reduce((a, b) => a + b, 0) / all.length : Infinity;
+  };
+  parts.sort((a, b) => a.act - b.act || (weight(a.list) === weight(b.list) ? a.chain - b.chain : weight(a.list) - weight(b.list)));
+  return parts.flatMap((part, i) => part.list.map((m) => ({ ...m, act: i + 1 })));
 }
 
 // ---------- Stavba a doplnění projektu ----------
@@ -333,63 +365,120 @@ function narrativeOrder(a: Key & { plotOrder?: number | null }, b: Key & { plotO
   );
 }
 
-function ref(sb: Storybeat): DramaticaRef {
-  return { uuid: sb.uuid, throughline: sb.throughline, scope: sb.scope, sequence: sb.sequence, fn: sb.fn, storytelling: sb.storytelling };
-}
-const titleOf = (sb: Storybeat) => sb.fn || `${SCOPE_NAME[sb.scope]} ${sb.sequence}`;
 /** Štítek storybeatu na kartě a v nabídkách: „OS P1“, „MC E3“, „RS S2“. */
 export const storybeatTag = (x: Key) => `${x.throughline} ${x.scope === 'signpost' ? 'S' : x.scope === 'progression' ? 'P' : 'E'}${x.sequence}`;
+/** Kde storybeat ve své throughline začíná, v jednotkách Událostí (0–63): podle toho se řadí strom storybeatů. */
+export const storybeatStart = (x: Key) => (x.sequence - 1) * (16 / PER_SIGNPOST[x.scope]);
 
-/** Dějové linie na tabuli. Throughline je vlastnost karty, ne řádek. */
+/** Dějové linie na tabuli. Throughline je vlastnost storybeatu, ne řádek: do linií si scény rozdělí autor. */
 export const STORY_LANES = [
   { name: 'A story', color: '#b45309' },
   { name: 'B story', color: '#0f766e' },
   { name: 'Minizápletky', color: '#6d28d9' },
 ];
-/** Kam storybeat po importu spadne: vnější děj a hlavní postava do A story, vztah a vlivová postava do B story. */
-const laneIndex = (t: Throughline) => (t === 'OS' || t === 'MC' ? 0 : 1);
 const actTitle = (n: number) => `${n}. dějství`;
-const MOMENT_COLOR = '#64748b';
 
 export interface MergeResult {
   added: number;
   updated: number;
+  /** Storybeaty, které se mezitím změnily ve Fabule i v Dramatice; platí znění z Fabuly. */
+  conflicts: number;
+}
+
+/** Scéna, která storybeat nese. */
+export const sceneOf = (p: Project, storybeat: string): Beat | undefined => Object.values(p.beats).find((b) => b.storybeats?.includes(storybeat));
+
+/** Storybeaty, které nejsou v žádné scéně. */
+export function unassigned(p: Project): StoryBeat[] {
+  const used = new Set(Object.values(p.beats).flatMap((b) => b.storybeats ?? []));
+  return (p.storyform?.beats ?? []).filter((x) => !used.has(x.key));
+}
+
+/** Přiřadí storybeaty scéně. Storybeat je nejvýš v jedné scéně, takže z ostatních zmizí. */
+export function assignStorybeats(p: Project, sceneId: ID, keys: string[]) {
+  const scene = p.beats[sceneId];
+  const known = new Set((p.storyform?.beats ?? []).map((x) => x.key));
+  const mine = keys.filter((k) => known.has(k));
+  if (!scene || !mine.length) return;
+  for (const b of Object.values(p.beats)) if (b !== scene && b.storybeats?.some((k) => mine.includes(k))) b.storybeats = b.storybeats.filter((k) => !mine.includes(k));
+  scene.storybeats = [...new Set([...(scene.storybeats ?? []), ...mine])];
+}
+
+/** Vyjme storybeat ze scény; vrátí se mezi nepřiřazené. */
+export function unassignStorybeat(p: Project, storybeat: string) {
+  for (const b of Object.values(p.beats)) if (b.storybeats?.includes(storybeat)) b.storybeats = b.storybeats.filter((k) => k !== storybeat);
+}
+
+/** Nová scéna ze storybeatů: název a synopsi převezme z prvního, zařadí se za `after` (jinak na konec). */
+export function sceneFromStorybeats(p: Project, keys: string[], after: ID | null): ID | null {
+  const first = p.storyform?.beats.find((x) => x.key === keys[0]);
+  if (!first) return null;
+  const laneId = (after && p.beats[after]?.laneId) || p.lanes[0].id;
+  const b = newBeat(laneId, { title: (/^.*?[.!?](?=\s|$)/.exec(first.summary)?.[0] ?? first.summary).slice(0, 80) || first.fn, synopsis: first.summary });
+  p.beats[b.id] = b;
+  const at = after ? p.order.indexOf(after) : -1;
+  p.order.splice(at < 0 ? p.order.length : at + 1, 0, b.id);
+  assignStorybeats(p, b.id, keys);
+  return b.id;
 }
 
 /**
- * Doplní projekt o podklady z Dramatiky. Co už v projektu je, dostane jen nové znění textů
- * (scénář, názvy upravené autorem, pořadí a přiřazení zůstávají); chybějící se přidá.
+ * Doplní projekt o podklady z Dramatiky.
  *
- * S Momenty: dějství jsou předěly, Moment je karta a k ní blok se storybeaty v pořadí. Storybeaty, které
- * v žádném Momentu nejsou, leží vyřazené tam, kam v čase patří, a dají se do Momentu přiřadit.
- * Bez Momentů (jen CSV se storybeaty): karty jdou po Signpostech v pořadí vyprávění.
+ * Storybeaty nejsou karty: žijí ve storyformu a scéna je nese jako štítky. Scénou je Moment (nebo scéna, kterou
+ * autor založí sám) a Story Driver. Co v projektu už je, se nepřesouvá ani nepřejmenovává; text storybeatu se
+ * vezme z Dramatiky jen tehdy, když ho autor ve Fabule mezitím neupravil.
  */
 export function mergeDramatica(p: Project, input: Storybeat[] | Bundle): MergeResult {
   const bundle: Bundle = Array.isArray(input) ? { storybeats: input, moments: [], drivers: [], players: [], notes: [] } : input;
-  const all = bundle.storybeats;
-  const result = { added: 0, updated: 0 };
-  const lanes = STORY_LANES.map((x) => {
-    let l = p.lanes.find((y) => y.name === x.name);
-    if (!l) p.lanes.push((l = { id: uid(), ...x }));
-    return l.id;
-  });
-  const existing = new Map<string, Beat>();
-  const bySource = new Map<string, Beat>();
-  for (const b of Object.values(p.beats)) {
-    if (b.dramatica) existing.set(key(b.dramatica), b);
-    if (b.source) bySource.set(b.source.id, b);
-  }
-  const byKey = new Map(all.map((x) => [key(x), x]));
-  const sorted = [...all].sort(narrativeOrder);
-  const withMoments = bundle.moments.length > 0 || [...bySource.values()].some((b) => b.source!.kind === 'moment');
+  const result: MergeResult = { added: 0, updated: 0, conflicts: 0 };
+  for (const x of STORY_LANES) if (!p.lanes.some((y) => y.name === x.name) && !p.storyform) p.lanes.push({ id: uid(), ...x });
+  if (!p.lanes.length) p.lanes.push({ id: uid(), ...STORY_LANES[0] });
+  const lane = p.lanes[0].id;
+  const sf: Storyform = (p.storyform ??= { points: [], dynamics: [], beats: [], acts: {}, signpostAct: [] });
+  sf.acts ??= {};
+  sf.id = bundle.storyformId ?? sf.id;
+  if (bundle.storyform) Object.assign(sf, bundle.storyform);
 
-  /** Předěl daného názvu; nový se zařadí na konec. */
-  const breakOf = (title: string): ID => {
-    let id = Object.values(p.breaks).find((x) => x.title === title)?.id;
-    if (!id) {
+  // ----- Storybeaty -----
+  const known = new Map(sf.beats.map((x) => [x.key, x]));
+  const fresh = new Set<string>();
+  for (const sb of bundle.storybeats) {
+    const old = known.get(key(sb));
+    if (!old) {
+      known.set(key(sb), { key: key(sb), uuid: sb.uuid, throughline: sb.throughline, scope: sb.scope, sequence: sb.sequence, fn: sb.fn, summary: sb.summary, storytelling: sb.storytelling, base: sb.storytelling });
+      fresh.add(key(sb));
+      result.added++;
+      continue;
+    }
+    const edited = old.storytelling !== old.base;
+    const moved = sb.storytelling !== old.base;
+    if (edited && moved && sb.storytelling !== old.storytelling) result.conflicts++;
+    else if (moved || old.summary !== sb.summary || old.fn !== sb.fn) result.updated++;
+    // Znění z Dramatiky platí, dokud ho autor ve Fabule nepřepsal.
+    if (!edited) old.storytelling = sb.storytelling;
+    Object.assign(old, { uuid: sb.uuid ?? old.uuid, fn: sb.fn, summary: sb.summary, base: sb.storytelling });
+  }
+  sf.beats = [...known.values()].sort((a, b) => tlIndex(a.throughline) - tlIndex(b.throughline) || storybeatStart(a) - storybeatStart(b) || SCOPE_RANK[a.scope] - SCOPE_RANK[b.scope]);
+  const byKey = new Map(sf.beats.map((x) => [x.key, x]));
+
+  // ----- Dějství -----
+  const bySource = new Map<string, Beat>();
+  for (const b of Object.values(p.beats)) if (b.source) bySource.set(b.source.id, b);
+  const moments = bundle.moments.map((m, i) => ({ m, i })).sort((a, b) => a.m.act - b.m.act || a.m.order - b.m.order || a.i - b.i);
+  // Bez Momentů se příběh dělí na čtyři části podle Signpostů.
+  const actNumbers = moments.length ? [...new Set(moments.map((x) => x.m.act))].sort((a, b) => a - b) : Object.keys(sf.acts).length ? [] : [1, 2, 3, 4];
+  /** Předěl dějství; chybějící (i smazaný) se založí znovu na správném místě. */
+  const actBreak = (n: number): ID => {
+    let id = sf.acts[n];
+    if (!id || !p.breaks[id] || !p.order.includes(id)) {
       id = uid();
-      p.breaks[id] = { id, title };
-      p.order.push(id);
+      p.breaks[id] = { id, title: actTitle(n) };
+      const later = Object.entries(sf.acts)
+        .filter(([k, v]) => +k > n && p.order.includes(v))
+        .map(([, v]) => p.order.indexOf(v));
+      p.order.splice(later.length ? Math.min(...later) : p.order.length, 0, id);
+      sf.acts[n] = id;
     }
     return id;
   };
@@ -399,166 +488,86 @@ export function mergeDramatica(p: Project, input: Storybeat[] | Bundle): MergeRe
     const next = p.order.findIndex((x, i) => i > from && p.breaks[x]);
     return next < 0 ? p.order.length : next;
   };
-  const card = (sb: Storybeat, patch: Partial<Beat>, at: number) => {
-    const b = newBeat(lanes[laneIndex(sb.throughline)], { title: titleOf(sb), synopsis: sb.summary, dramatica: ref(sb), ...patch });
-    p.beats[b.id] = b;
-    p.order.splice(at, 0, b.id);
-    existing.set(key(sb), b);
-    result.added++;
-    return b;
-  };
-  const refresh = (old: Beat, sb: Storybeat) => {
-    const d = old.dramatica!;
-    if ((!!sb.summary && old.synopsis !== sb.summary) || d.storytelling !== sb.storytelling || d.fn !== sb.fn) result.updated++;
-    if (sb.summary) old.synopsis = sb.summary;
-    if (!old.title.trim() || old.title === d.fn) old.title = titleOf(sb);
-    old.dramatica = { ...ref(sb), storytelling: sb.storytelling || d.storytelling };
-  };
+  for (const n of actNumbers) actBreak(n);
 
-  if (withMoments) {
-    const moments = bundle.moments.map((m, i) => ({ m, i })).sort((a, b) => a.m.act - b.m.act || a.m.order - b.m.order || a.i - b.i);
-    for (const act of [...new Set(moments.map((x) => x.m.act))].sort((a, b) => a - b)) breakOf(actTitle(act));
-    const placed = new Set<string>();
-    for (const { m } of moments) {
-      const mine = m.storybeats.map((k) => byKey.get(k)).filter((x): x is Storybeat => !!x && !placed.has(key(x)));
-      let head = bySource.get(m.id);
-      if (head) {
-        if (m.synopsis) head.synopsis = m.synopsis;
-        head.source = { id: m.id, kind: 'moment', text: m.text || head.source!.text };
-      } else {
-        // Moment, jehož storybeaty patří jen vztahu a vlivové postavě, začíná v B story.
-        const lane = mine.length && mine.every((x) => laneIndex(x.throughline) === 1) ? 1 : 0;
-        head = newBeat(lanes[lane], { title: m.title, synopsis: m.synopsis, source: { id: m.id, kind: 'moment', text: m.text } });
-        p.beats[head.id] = head;
-        p.order.splice(endOf(breakOf(actTitle(m.act))), 0, head.id);
-        bySource.set(m.id, head);
-        result.added++;
-      }
-      for (const sb of mine) {
-        placed.add(key(sb));
-        const old = existing.get(key(sb));
-        if (old) refresh(old, sb);
-        else {
-          const groupId = momentGroup(p, head);
-          const last = p.order.reduce((at, id, i) => (p.beats[id]?.groupId === groupId ? i : at), p.order.indexOf(head.id));
-          card(sb, { groupId }, last + 1);
-        }
-      }
+  // ----- Momenty: scény v pořadí; storybeaty Momentu jsou jejich štítky -----
+  const used = new Set(Object.values(p.beats).flatMap((b) => b.storybeats ?? []));
+  for (const { m } of moments) {
+    let scene = bySource.get(m.id);
+    if (scene) {
+      if (m.synopsis && !scene.synopsis) scene.synopsis = m.synopsis;
+      scene.source = { id: m.id, kind: 'moment', text: scene.source!.text || m.text };
+    } else {
+      scene = newBeat(lane, { title: m.title, synopsis: m.synopsis, source: { id: m.id, kind: 'moment', text: m.text } });
+      p.beats[scene.id] = scene;
+      p.order.splice(endOf(actBreak(m.act)), 0, scene.id);
+      bySource.set(m.id, scene);
+      result.added++;
     }
-    // Ostatní storybeaty zůstávají vyřazené, ale leží tam, kam v čase patří: ve svém dějství, v pořadí vyprávění,
-    // tak daleko od jeho začátku, jak daleko je storybeat ve svých Signpostech.
-    const actIds = p.order.filter((id) => /^\d+\. dějství$/.test(p.breaks[id]?.title ?? ''));
-    const n = actIds.length;
-    /** Dějství (pořadí od nuly), do kterého Signpost spadá. */
-    const actOf = (sp: number) => (n >= 4 ? Math.min(n, sp) - 1 : n === 3 ? [0, 1, 1, 2][sp - 1] : n === 2 ? (sp <= 2 ? 0 : 1) : 0);
-    const rank = new Map(sorted.map((x, i) => [key(x), i]));
-    const original = actIds.map((id) => p.order.slice(p.order.indexOf(id) + 1, endOf(id)));
-    for (const sb of sorted) {
-      if (placed.has(key(sb))) continue;
-      const old = existing.get(key(sb));
-      if (old) {
-        refresh(old, sb);
-        continue;
-      }
-      const sp = signpostOf(sb);
-      const act = actOf(sp);
-      const inAct = [1, 2, 3, 4].filter((x) => actOf(x) === act);
-      const share = (inAct.indexOf(sp) + ((sb.sequence - 1) % PER_SIGNPOST[sb.scope]) / PER_SIGNPOST[sb.scope]) / inAct.length;
-      const from = p.order.indexOf(actIds[act]) + 1;
-      const end = endOf(actIds[act]);
-      // Cíl podle podílu mezi položkami, které v dějství byly před doplňováním.
-      const before = original[act][Math.round(share * original[act].length)];
-      let at = before ? p.order.indexOf(before) : end;
-      // Nikdy před storybeat, který ve vyprávění předchází.
-      for (let i = from; i < end; i++) {
-        const d = p.beats[p.order[i]]?.dramatica;
-        if (d && (rank.get(key(d)) ?? Infinity) < rank.get(key(sb))! && i + 1 > at) at = i + 1;
-      }
-      // A ne doprostřed bloku Momentu.
-      while (at < end && at > from && p.beats[p.order[at]]?.groupId && p.beats[p.order[at]].groupId === p.beats[p.order[at - 1]]?.groupId) at++;
-      card(sb, { off: true }, at);
-    }
-  } else {
-    // Jen storybeaty: kartou je nejpodrobnější úroveň (Událost, jinak Progrese, jinak Signpost), řazeno po Signpostech.
+    // Složení z Dramatiky se použije jen pro storybeaty, které autor ve Fabule ještě nikam nezařadil.
+    const mine = m.storybeats.filter((k) => byKey.has(k) && !used.has(k));
+    if (mine.length) scene.storybeats = [...(scene.storybeats ?? []), ...mine];
+    mine.forEach((k) => used.add(k));
+  }
+
+  // ----- Které dějství patří kterému Signpostu: podle toho, kde storybeaty Signpostu skutečně leží -----
+  const acts = Object.keys(sf.acts).map(Number).sort((a, b) => a - b);
+  const actAt = (id: ID) => {
+    const at = p.order.indexOf(id);
+    return [...acts].reverse().find((n) => p.order.indexOf(sf.acts[n]) < at) ?? acts[0];
+  };
+  const seen: number[][] = [[], [], [], []];
+  for (const id of p.order) for (const k of p.beats[id]?.storybeats ?? []) if (byKey.has(k)) seen[signpostOf(byKey.get(k)!) - 1].push(actAt(id));
+  const n = acts.length;
+  const fallback = (sp: number) => acts[n >= 4 ? Math.min(n, sp) - 1 : n === 3 ? [0, 1, 1, 2][sp - 1] : n === 2 ? (sp <= 2 ? 0 : 1) : 0];
+  const mode = (list: number[]) => [...new Set(list)].sort((a, b) => list.filter((x) => x === b).length - list.filter((x) => x === a).length || a - b)[0];
+  sf.signpostAct = [1, 2, 3, 4].map((sp) => (seen[sp - 1].length ? mode(seen[sp - 1]) : fallback(sp)));
+  // Signposty jdou po sobě, takže ani jejich dějství se nesmí vracet.
+  for (let i = 1; i < 4; i++) sf.signpostAct[i] = Math.max(sf.signpostAct[i], sf.signpostAct[i - 1]);
+
+  // ----- Jen storybeaty (CSV bez Momentů): scénou je nejpodrobnější úroveň, aby tabule nezůstala prázdná.
+  // Scéna vznikne jen pro storybeat, který právě přibyl: co autor ze scény vyjmul, se samo nevrací. -----
+  if (!bundle.moments.length && ![...bySource.values()].some((b) => b.source!.kind === 'moment')) {
     const children = new Map<string, number>();
-    for (const x of all) {
+    for (const x of sf.beats) {
       const up = parentOf(x);
       if (up) children.set(key(up), (children.get(key(up)) ?? 0) + 1);
     }
-    const isCard = (x: Storybeat) => {
-      const n = children.get(key(x)) ?? 0;
-      return n === 0 || (n < 4 && !!(x.summary || x.storytelling));
-    };
-    const rank = new Map(sorted.map((x, i) => [key(x), i]));
-    for (let sp = 1; sp <= 4; sp++) if (sorted.some((x) => signpostOf(x) === sp && isCard(x))) breakOf(`Signpost ${sp}`);
-    for (const sb of sorted) {
-      const old = existing.get(key(sb));
-      if (old) refresh(old, sb);
-      else if (isCard(sb)) {
-        // Za poslední kartu téhož Signpostu, která ve vyprávění předchází; jinak hned za předěl.
-        let at = p.order.indexOf(breakOf(`Signpost ${signpostOf(sb)}`)) + 1;
-        p.order.forEach((id, i) => {
-          const d = p.beats[id]?.dramatica;
-          if (d && signpostOf(d) === signpostOf(sb) && (rank.get(key(d)) ?? Infinity) < rank.get(key(sb))!) at = i + 1;
-        });
-        card(sb, {}, at);
-      }
-    }
-    // Text nadřazených storybeatů, které kartou nejsou, patří do rešerše.
-    for (const sb of all) {
-      if (existing.has(key(sb)) || !(sb.summary || sb.storytelling)) continue;
-      const title = `${THROUGHLINES[tlIndex(sb.throughline)].name} · ${SCOPE_NAME[sb.scope]} ${sb.sequence}${sb.fn ? ` · ${sb.fn}` : ''}`;
-      const body = [sb.summary, sb.storytelling].filter(Boolean).join('\n\n');
-      const item = p.research.find((x) => x.folder === 'Dramatica' && x.title === title);
-      if (item) item.text = body;
-      else p.research.push({ id: uid(), title, text: body, folder: 'Dramatica', url: '', beatIds: [] });
+    const leaves = sf.beats.filter((x) => fresh.has(x.key) && !used.has(x.key) && !(children.get(x.key) ?? 0)).sort(narrativeOrder);
+    for (const sb of leaves) {
+      const scene = newBeat(lane, { title: sb.fn || storybeatTag(sb), synopsis: sb.summary, storybeats: [sb.key] });
+      p.beats[scene.id] = scene;
+      p.order.splice(endOf(actBreak(sf.signpostAct[signpostOf(sb) - 1])), 0, scene.id);
+      used.add(sb.key);
+      result.added++;
     }
   }
 
-  // ----- Story Drivery: karty v A story na zlomech příběhu -----
-  /** Oddíly, do kterých se příběh dělí (dějství nebo Signposty), v pořadí. */
-  const parts = p.order.filter((id) => p.breaks[id]);
-  const basementAt = () => p.order.length;
-  /** Místo uvnitř oddílu, které neroztrhne blok Momentu. */
-  const middleOf = (breakId: ID) => {
-    const from = p.order.indexOf(breakId) + 1;
-    let at = from + Math.ceil((endOf(breakId) - from) / 2);
-    while (at < endOf(breakId) && at > from && p.beats[p.order[at]]?.groupId && p.beats[p.order[at]].groupId === p.beats[p.order[at - 1]]?.groupId) at++;
-    return at;
+  // ----- Story Drivery: scény na zlomech mezi Signposty -----
+  /** Místo, kde končí Signpost `sp`: konec jeho dějství, nebo polovina, když dějství pokračuje dalším Signpostem. */
+  const turnAfter = (sp: number) => {
+    const id = sf.acts[sf.signpostAct[sp - 1]];
+    const from = p.order.indexOf(id) + 1;
+    if (sp < 4 && sf.signpostAct[sp] === sf.signpostAct[sp - 1]) return from + Math.ceil((endOf(id) - from) / 2);
+    return endOf(id);
   };
   for (const d of bundle.drivers) {
     const old = bySource.get(d.id);
     if (old) {
-      if (d.summary) old.synopsis = d.summary;
-      old.source = { id: d.id, kind: 'driver', text: d.storytelling || old.source!.text };
+      if (d.summary && !old.synopsis) old.synopsis = d.summary;
+      old.source = { id: d.id, kind: 'driver', text: old.source!.text || d.storytelling };
       continue;
     }
-    const b = newBeat(lanes[0], { title: DRIVERS[d.index], synopsis: d.summary, source: { id: d.id, kind: 'driver', text: d.storytelling } });
+    const b = newBeat(lane, { title: DRIVERS[d.index], synopsis: d.summary, source: { id: d.id, kind: 'driver', text: d.storytelling } });
     p.beats[b.id] = b;
-    // Initial na začátku, Concluding na konci; ostatní na konci první čtvrtiny, v polovině a na konci třetí čtvrtiny.
-    const n = parts.length;
-    const at =
-      d.index === 0 || !n
-        ? d.index === 0 && n
-          ? p.order.indexOf(parts[0]) + 1
-          : basementAt()
-        : d.index === 4
-          ? basementAt()
-          : n >= 4
-            ? endOf(parts[d.index - 1])
-            : n === 3
-              ? d.index === 2
-                ? middleOf(parts[1])
-                : endOf(parts[d.index === 1 ? 0 : 1])
-              : d.index === 2
-                ? middleOf(parts[n - 1])
-                : endOf(parts[d.index === 1 ? 0 : n - 1]);
+    // Initial otevírá první Signpost; každý další Driver uzavírá ten svůj.
+    const at = !acts.length ? p.order.length : d.index === 0 ? p.order.indexOf(sf.acts[sf.signpostAct[0]]) + 1 : turnAfter(d.index);
     p.order.splice(at, 0, b.id);
     bySource.set(d.id, b);
     result.added++;
   }
 
-  // ----- Postavy -----
+  // ----- Postavy a podklady -----
   for (const pl of bundle.players) {
     if (!pl.name || p.characters.some((c) => c.name.toLowerCase() === pl.name.toLowerCase())) continue;
     const role: CharRole = /protagon|antagon|\bMC\b|\bIC\b/i.test(pl.role) ? 'main' : pl.role ? 'secondary' : 'small';
@@ -571,61 +580,8 @@ export function mergeDramatica(p: Project, input: Storybeat[] | Bundle): MergeRe
     else p.research.push({ id: uid(), title, text: body, folder, url: '', beatIds: [] });
   };
   for (const pl of bundle.players) if (pl.name && (pl.role || pl.text)) note('Postavy', pl.name, [pl.role, pl.text].filter(Boolean).join('\n\n'));
-  for (const n of bundle.notes) note(n.folder, n.title, n.text);
-
-  // ----- Storyform: storypointy, dynamika a přehled storybeatů -----
-  const known = new Map((p.storyform?.beats ?? []).map((x) => [x.key, x]));
-  for (const x of all) known.set(key(x), { key: key(x), uuid: x.uuid, throughline: x.throughline, scope: x.scope, sequence: x.sequence, fn: x.fn, summary: x.summary });
-  p.storyform = {
-    points: bundle.storyform?.points ?? p.storyform?.points ?? [],
-    dynamics: bundle.storyform?.dynamics ?? p.storyform?.dynamics ?? [],
-    beats: [...known.values()].sort((a, b) => tlIndex(a.throughline) - tlIndex(b.throughline) || narrativeOrder(a, b)),
-  };
+  for (const x of bundle.notes) note(x.folder, x.title, x.text);
   return result;
-}
-
-/** Blok Momentu: vznikne, až když do Momentu přijde první storybeat; karta Momentu je jeho první položkou. */
-function momentGroup(p: Project, head: Beat): ID {
-  if (head.groupId && p.groups.some((g) => g.id === head.groupId)) return head.groupId;
-  const g = { id: uid(), title: head.title, color: MOMENT_COLOR, collapsed: false, parentId: null };
-  p.groups.push(g);
-  head.groupId = g.id;
-  return g.id;
-}
-
-/** Karty Momentů v pořadí vyprávění. */
-export const momentCards = (p: Project): Beat[] => p.order.map((id) => p.beats[id]).filter((b) => b?.source?.kind === 'moment');
-
-/** Karta Momentu, do kterého beat patří. */
-export const momentOf = (p: Project, b: Beat): Beat | null =>
-  b.source?.kind === 'moment' || !b.groupId ? null : (momentCards(p).find((m) => m.groupId === b.groupId) ?? null);
-
-/**
- * Přiřadí beat do Momentu: zařadí ho na konec jeho bloku a vrátí do příběhu. Bez Momentu ho z bloku
- * vyjme a vyřadí ze scénáře; na tabuli zůstane na svém místě.
- */
-export function assignMoment(p: Project, beatId: ID, momentId: ID | null) {
-  const b = p.beats[beatId];
-  const head = momentId ? p.beats[momentId] : null;
-  if (!b || b.source?.kind === 'moment') return;
-  if (!head) {
-    // Zůstane, kde v čase je; jen ho vysuneme za konec bloku, aby blok zůstal pohromadě.
-    const groupId = b.groupId;
-    b.groupId = null;
-    b.off = true;
-    if (groupId) {
-      p.order.splice(p.order.indexOf(beatId), 1);
-      const last = p.order.reduce((at, id, i) => (p.beats[id]?.groupId === groupId ? i : at), -1);
-      p.order.splice(last + 1, 0, beatId);
-    }
-    return;
-  }
-  p.order.splice(p.order.indexOf(beatId), 1);
-  const groupId = momentGroup(p, head);
-  const last = p.order.reduce((at, id, i) => (p.beats[id]?.groupId === groupId ? i : at), p.order.indexOf(head.id));
-  b.groupId = groupId;
-  b.off = false;
-  p.order.splice(last + 1, 0, beatId);
 }
 
 /** Nový projekt z podkladů Dramatiky. */
@@ -653,36 +609,58 @@ export function importDramatica(all: Storybeat[] | Bundle, title: string): Proje
   return p;
 }
 
-/** Momenty a Story Drivery v pořadí vyprávění; u Momentu i jeho storybeaty v pořadí. Podklad pro zápis zpět. */
+/**
+ * Pořadí uvnitř throughline je jediné, které Dramatica předepisuje. Vrátí dvojice scén, kde pozdější storybeat
+ * téže throughline a úrovně stojí ve vyprávění dřív než ten, který mu předchází.
+ */
+export function orderBreaks(p: Project): { first: ID; second: ID; earlier: StoryBeat; later: StoryBeat }[] {
+  const byKey = new Map((p.storyform?.beats ?? []).map((x) => [x.key, x]));
+  const last = new Map<string, { id: ID; sb: StoryBeat }>();
+  const out: ReturnType<typeof orderBreaks> = [];
+  for (const id of p.order) {
+    const b = p.beats[id];
+    if (!b || b.off) continue;
+    for (const sb of (b.storybeats ?? []).map((k) => byKey.get(k)).filter((x): x is StoryBeat => !!x)) {
+      const track = `${sb.throughline}/${sb.scope}`;
+      const prev = last.get(track);
+      if (prev && prev.sb.sequence > sb.sequence && prev.id !== id) out.push({ first: prev.id, second: id, earlier: sb, later: prev.sb });
+      if (!prev || sb.sequence >= prev.sb.sequence) last.set(track, { id, sb });
+    }
+  }
+  return out;
+}
+
+/** Throughlines, které scéna nese. */
+export const throughlinesOf = (p: Project, b: Beat): Throughline[] => [...new Set((b.storybeats ?? []).map((k) => k.split('/')[0] as Throughline))];
+
+/** Momenty a Story Drivery v pořadí vyprávění; u Momentu i jeho storybeaty. Podklad pro zápis zpět. */
 export function exportSources(p: Project) {
+  const uuid = new Map((p.storyform?.beats ?? []).map((x) => [x.key, x.uuid ?? x.key]));
   return p.order
     .map((id, i) => ({ b: p.beats[id], i }))
     .filter((x) => x.b?.source)
-    .map(({ b, i }) => ({
-      id: b.source!.id,
-      kind: b.source!.kind,
-      order: i + 1,
-      title: b.title,
-      synopsis: b.synopsis,
-      text: b.source!.text,
-      storybeats: b.source!.kind === 'moment' && b.groupId ? p.order.filter((x) => p.beats[x]?.groupId === b.groupId && p.beats[x].dramatica).map((x) => p.beats[x].dramatica!.uuid ?? key(p.beats[x].dramatica!)) : [],
-    }));
+    .map(({ b, i }) => ({ id: b.source!.id, kind: b.source!.kind, order: i + 1, title: b.title, synopsis: b.synopsis, text: b.source!.text, storybeats: (b.storybeats ?? []).map((k) => uuid.get(k) ?? k) }));
 }
 
-/** Storybeaty na kartách jako podklad pro zápis zpět; vyřazené (nepřiřazené) se neposílají. */
-export function exportDramatica(p: Project): Storybeat[] {
-  return p.order
-    .map((id) => p.beats[id])
-    .filter((b) => b?.dramatica)
-    .map((b, i) => ({
-      uuid: b.dramatica!.uuid,
-      throughline: b.dramatica!.throughline,
-      scope: b.dramatica!.scope,
-      sequence: b.dramatica!.sequence,
-      fn: b.dramatica!.fn,
-      summary: b.synopsis,
-      storytelling: b.dramatica!.storytelling,
-      plotOrder: b.off ? null : i + 1,
-      moments: [momentOf(p, b)?.title].filter((x): x is string => !!x),
-    }));
+/**
+ * Storybeaty jako podklad pro zápis zpět do Dramatiky. `changed` říká, že autor Storytelling ve Fabule upravil;
+ * pořadí mají jen storybeaty zařazené do scény.
+ */
+export function exportDramatica(p: Project) {
+  const at = new Map<string, number>();
+  let n = 0;
+  for (const id of p.order) for (const k of p.beats[id]?.storybeats ?? []) at.set(k, ++n);
+  return (p.storyform?.beats ?? []).map((x) => ({
+    storyform: p.storyform?.id,
+    uuid: x.uuid,
+    throughline: x.throughline,
+    scope: x.scope,
+    sequence: x.sequence,
+    fn: x.fn,
+    summary: x.summary,
+    storytelling: x.storytelling,
+    changed: x.storytelling !== x.base,
+    plotOrder: at.get(x.key) ?? null,
+    scene: sceneOf(p, x.key)?.title ?? null,
+  }));
 }

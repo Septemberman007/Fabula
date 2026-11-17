@@ -3,7 +3,10 @@ import { State, Tab, actions, ui } from './store';
 import { Issue } from './evaluate';
 import { detectedCharacters, unknownSpeakers } from './text';
 import { eighths, pageRange, paginate } from './paginate';
-import { THROUGHLINES, assignMoment, momentCards, momentOf, storybeatTag } from './dramatica';
+import { useState } from 'react';
+import { THROUGHLINES, assignStorybeats, sceneFromStorybeats, sceneOf, storybeatTag, throughlinesOf, unassignStorybeat, unassigned } from './dramatica';
+import { THROUGHLINE_COLOR } from './colors';
+import type { StoryBeat, Throughline } from './model';
 
 const SEVERITY_LABEL = { error: 'Chyba', warn: 'Varování', tip: 'Tip' } as const;
 
@@ -15,6 +18,7 @@ export function Inspector({ s, issues }: { s: State; issues: Issue[] }) {
     ['issues', `Problémy${issues.length ? ` (${issues.length})` : ''}`],
   ];
   const sf = s.project.storyform;
+  if (sf?.beats.length) tabs.push(['beats', `Storybeaty${unassigned(s.project).length ? ` (${unassigned(s.project).length})` : ''}`]);
   if (sf && sf.points.length + sf.dynamics.length > 0) tabs.push(['storyform', 'Storyform']);
   const tab = tabs.some(([id]) => id === s.tab) ? s.tab : 'detail';
   return (
@@ -31,8 +35,152 @@ export function Inspector({ s, issues }: { s: State; issues: Issue[] }) {
         {tab === 'cast' && <Cast s={s} />}
         {tab === 'issues' && <Issues s={s} issues={issues} />}
         {tab === 'storyform' && <StoryformPanel s={s} />}
+        {tab === 'beats' && <StorybeatTray s={s} />}
       </div>
     </aside>
+  );
+}
+
+/** Mime typ pro tažení storybeatů ze zásobníku na scénu. */
+export const STORYBEAT_MIME = 'application/x-fabula-storybeats';
+
+const Chip = ({ sb }: { sb: StoryBeat }) => (
+  <span className="card-tl" style={{ background: THROUGHLINE_COLOR[sb.throughline] }}>
+    {storybeatTag(sb)}
+  </span>
+);
+
+/** Storybeaty, které scéna nese: jejich znění, úprava Storytellingu, vyjmutí a přidání dalšího. */
+function SceneStorybeats({ s, id }: { s: State; id: ID }) {
+  const p = s.project;
+  const b = p.beats[id];
+  const mine = (b.storybeats ?? []).map((k) => p.storyform!.beats.find((x) => x.key === k)).filter((x): x is StoryBeat => !!x);
+  const free = unassigned(p);
+  const setText = (key: string, value: string) =>
+    actions.editScript((draft) => {
+      const sb = draft.storyform?.beats.find((x) => x.key === key);
+      if (sb) sb.storytelling = value;
+    }, `storytelling:${key}`);
+  return (
+    <div className="scene-beats">
+      <div className="insp-kicker">Storybeaty scény</div>
+      {mine.length === 0 && <p className="muted small">Scéna zatím nenese žádný storybeat. Přetáhni ho sem ze záložky Storybeaty, nebo ho vyber níže.</p>}
+      {mine.map((sb) => (
+        <div className="scene-beat" key={sb.key}>
+          <div className="scene-beat-head">
+            <Chip sb={sb} />
+            <b>{sb.fn}</b>
+            <button className="x" title="Vyjmout storybeat ze scény" onClick={() => actions.editScript((draft) => unassignStorybeat(draft, sb.key))}>
+              ×
+            </button>
+          </div>
+          {sb.summary && <p>{sb.summary}</p>}
+          <textarea rows={4} value={sb.storytelling} placeholder="Storytelling: jak se storybeat ve scéně odehraje" onChange={(e) => setText(sb.key, e.target.value)} />
+        </div>
+      ))}
+      {free.length > 0 && (
+        <select value="" onChange={(e) => e.target.value && actions.editScript((draft) => assignStorybeats(draft, id, [e.target.value]))}>
+          <option value="">+ Přidat storybeat…</option>
+          {THROUGHLINES.map((t) => (
+            <optgroup key={t.key} label={t.name}>
+              {free
+                .filter((x) => x.throughline === t.key)
+                .map((x) => (
+                  <option key={x.key} value={x.key}>
+                    {storybeatTag(x)} · {x.fn}
+                    {x.summary ? ` – ${x.summary.slice(0, 60)}` : ''}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Zásobník storybeatů: strom po throughlines (Signpost › Progrese › Událost). Nepřiřazené se dají přetáhnout
+ * na scénu na tabuli, nebo jich víc zaškrtnout a přiřadit najednou vybrané scéně.
+ */
+function StorybeatTray({ s }: { s: State }) {
+  const p = s.project;
+  const [tl, setTl] = useState<Throughline | ''>('');
+  const [all, setAll] = useState(false);
+  const [checked, setChecked] = useState<string[]>([]);
+  const free = new Set(unassigned(p).map((x) => x.key));
+  const list = p.storyform!.beats.filter((x) => (!tl || x.throughline === tl) && (all || free.has(x.key)));
+  const picked = checked.filter((k) => free.has(k) || all);
+  const scene = s.selected ? p.beats[s.selected] : null;
+  const toggle = (k: string) => setChecked((c) => (c.includes(k) ? c.filter((x) => x !== k) : [...c, k]));
+  const done = () => setChecked([]);
+  return (
+    <div className="tray">
+      <div className="tray-filter">
+        <span className="seg">
+          <button className={tl === '' ? 'on' : ''} onClick={() => setTl('')}>
+            Vše
+          </button>
+          {THROUGHLINES.map((t) => (
+            <button key={t.key} className={tl === t.key ? 'on' : ''} onClick={() => setTl(t.key)} title={t.name}>
+              {t.key}
+            </button>
+          ))}
+        </span>
+        <label className="check">
+          <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> i přiřazené
+        </label>
+      </div>
+      <p className="muted small">
+        {free.size} z {p.storyform!.beats.length} storybeatů není v žádné scéně. Přetáhni je na kartu na tabuli, nebo jich víc zaškrtni.
+      </p>
+      {picked.length > 0 && (
+        <div className="tray-actions">
+          <button className="primary" disabled={!scene} onClick={() => (actions.editScript((draft) => assignStorybeats(draft, scene!.id, picked)), done())}>
+            {scene ? `Přiřadit ${picked.length} ke scéně „${scene.title || 'Bez názvu'}“` : 'Vyber scénu na tabuli'}
+          </button>
+          <button
+            onClick={() => {
+              let made: ID | null = null;
+              actions.editScript((draft) => void (made = sceneFromStorybeats(draft, picked, s.selected)));
+              if (made) ui({ selected: made });
+              done();
+            }}
+          >
+            Nová scéna z vybraných
+          </button>
+        </div>
+      )}
+      {list.length === 0 && <p className="muted">Všechny storybeaty jsou zařazené do scén.</p>}
+      {list.map((sb, i) => {
+        const at = sceneOf(p, sb.key);
+        const head = i === 0 || list[i - 1].throughline !== sb.throughline;
+        return (
+          <div key={sb.key}>
+            {head && !tl && <div className="tray-head">{THROUGHLINES.find((t) => t.key === sb.throughline)!.name}</div>}
+            <div
+              className={`tray-row ${sb.scope}${at ? ' placed' : ''}`}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData(STORYBEAT_MIME, JSON.stringify(picked.includes(sb.key) ? picked : [sb.key]));
+                e.dataTransfer.effectAllowed = 'link';
+              }}
+            >
+              <input type="checkbox" checked={checked.includes(sb.key)} onChange={() => toggle(sb.key)} aria-label={`Vybrat ${storybeatTag(sb)}`} />
+              <div>
+                <Chip sb={sb} /> <b>{sb.fn}</b>
+                {sb.summary && <p>{sb.summary}</p>}
+                {at && (
+                  <button className="linklike" onClick={() => ui({ selected: at.id, multi: [], tab: 'detail' })}>
+                    → {at.title || 'Bez názvu'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -41,7 +189,7 @@ function StoryformPanel({ s }: { s: State }) {
   const p = s.project;
   const sf = p.storyform!;
   const b = s.selected ? p.beats[s.selected] : null;
-  const current = b?.dramatica?.throughline ?? null;
+  const current = b ? (throughlinesOf(p, b)[0] ?? null) : null;
   const point = (x: (typeof sf.points)[number], i: number) => (
     <div className="sf-point" key={i}>
       <b>{x.name}</b>
@@ -168,35 +316,7 @@ function Detail({ s, issues }: { s: State; issues: Issue[] }) {
           />
         </label>
       )}
-      {b.dramatica && (
-        <label>
-          Dramatica · {storybeatTag(b.dramatica)}
-          {b.dramatica.fn && ` · ${b.dramatica.fn}`}
-          <textarea
-            rows={6}
-            value={b.dramatica.storytelling}
-            placeholder="Storytelling: jak se storybeat v příběhu odehraje"
-            onChange={(e) => actions.updateBeat(id, { dramatica: { ...b.dramatica!, storytelling: e.target.value } }, 'storytelling')}
-          />
-        </label>
-      )}
-      {b.source?.kind !== 'moment' && momentCards(p).length > 0 && (
-        <label>
-          Patří do Momentu
-          <select
-            value={momentOf(p, b)?.id ?? ''}
-            title="Beat se zařadí na konec Momentu; bez Momentu se odloží mezi nepřiřazené a do scénáře se nepočítá"
-            onChange={(e) => actions.editScript((draft) => assignMoment(draft, id, e.target.value || null))}
-          >
-            <option value="">{b.off ? '— nepřiřazeno —' : '— žádný —'}</option>
-            {momentCards(p).map((m, i) => (
-              <option key={m.id} value={m.id}>
-                {i + 1}. {m.title || 'Bez názvu'}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      {(p.storyform?.beats.length ?? 0) > 0 && <SceneStorybeats s={s} id={id} />}
       <div className="row">
         <label>
           Linie

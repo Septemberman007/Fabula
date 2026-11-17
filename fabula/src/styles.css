@@ -3606,3 +3606,101 @@ button.pressed {
   border: 1px solid var(--line);
   line-height: 13px;
 }
+
+/* ---------- Storybeaty: štítky na kartě, seznam u scény, zásobník ---------- */
+.card-beats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 2px 0 3px;
+}
+.card-beats .card-tl {
+  margin: 0;
+}
+.card.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+.scene-beats {
+  margin: 10px 0;
+}
+.scene-beats select {
+  width: 100%;
+  margin-top: 6px;
+}
+.scene-beat {
+  border-top: 1px solid var(--line-soft);
+  padding: 6px 0;
+}
+.scene-beat-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.scene-beat-head .x {
+  margin-left: auto;
+}
+.scene-beat p {
+  margin: 3px 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.scene-beat textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12.5px;
+}
+.tray-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.tray-actions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  background: var(--surface);
+}
+.tray-head {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tray-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 5px 4px;
+  border-top: 1px solid var(--line-soft);
+  cursor: grab;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.tray-row.progression {
+  padding-left: 14px;
+}
+.tray-row.event {
+  padding-left: 28px;
+}
+.tray-row.placed {
+  opacity: 0.6;
+}
+.tray-row p {
+  margin: 2px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tray-row:hover {
+  background: rgb(128 128 128 / 0.07);
+}

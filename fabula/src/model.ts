@@ -184,18 +184,14 @@ export interface Beat {
   /** 0–10 */
   tension: number;
   status: BeatStatus;
-  /** Storybeat z Dramatiky, ze kterého beat vznikl. */
-  dramatica?: DramaticaRef;
-  /** Moment nebo Story Driver z Dramatiky, ze kterého beat vznikl. */
+  /** Moment nebo Story Driver z Dramatiky, ze kterého scéna vznikla. */
   source?: DramaticaSource;
+  /** Storybeaty, které scéna nese (klíče „OS/event/3“); storybeat je nejvýš v jedné scéně. */
+  storybeats?: string[];
 }
 
-/** Storyform z Dramatiky: to, co se v čase nemění, a seznam storybeatů, ke kterým jde přiřadit scénu. */
-export interface Storyform {
-  points: { throughline: Throughline | ''; name: string; fn: string; summary: string; text: string }[];
-  dynamics: { name: string; value: string; summary: string }[];
-  beats: { key: string; uuid?: string; throughline: Throughline; scope: StorybeatScope; sequence: number; fn: string; summary: string }[];
-}
+export type Throughline = 'OS' | 'MC' | 'IC' | 'RS';
+export type StorybeatScope = 'signpost' | 'progression' | 'event';
 
 export interface DramaticaSource {
   id: string;
@@ -204,11 +200,10 @@ export interface DramaticaSource {
   text: string;
 }
 
-export type Throughline = 'OS' | 'MC' | 'IC' | 'RS';
-export type StorybeatScope = 'signpost' | 'progression' | 'event';
-
-/** Odkaz na storybeat v Dramatice: podle něj se beat při dalším importu pozná a jde poslat zpět. */
-export interface DramaticaRef {
+/** Storybeat z Dramatiky. Není kartou: žije ve storyformu a scéna se na něj odkazuje klíčem. */
+export interface StoryBeat {
+  /** „OS/event/3“: throughline, úroveň a pořadí. */
+  key: string;
   uuid?: string;
   throughline: Throughline;
   scope: StorybeatScope;
@@ -216,8 +211,24 @@ export interface DramaticaRef {
   sequence: number;
   /** Narrative Function, např. „Instinct“. */
   fn: string;
-  /** Storytelling: delší popis, jak se storybeat v příběhu odehraje. */
+  summary: string;
+  /** Storytelling: delší popis, jak se storybeat v příběhu odehraje. Dá se upravovat. */
   storytelling: string;
+  /** Storytelling, jak přišel při posledním importu: podle něj se pozná úprava udělaná ve Fabule. */
+  base: string;
+}
+
+/** Storyform z Dramatiky: storybeaty a to, co se v čase nemění. */
+export interface Storyform {
+  /** Identifikátor storyformu v Dramatice; brání smíchání dvou příběhů. */
+  id?: string;
+  points: { throughline: Throughline | ''; name: string; fn: string; summary: string; text: string }[];
+  dynamics: { name: string; value: string; summary: string }[];
+  beats: StoryBeat[];
+  /** Předěly dějství podle čísla dějství. */
+  acts: Record<number, ID>;
+  /** Dějství (číslo), do kterého spadá každý Signpost 1–4. */
+  signpostAct: number[];
 }
 
 /** Předěl ve struktuře (dějství, kapitola…). */

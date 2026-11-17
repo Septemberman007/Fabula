@@ -4,7 +4,8 @@ import { DragEvent, MouseEvent, PointerEvent, memo, useEffect, useMemo, useRef, 
 import { BoardNote, ID, NOTE_COLORS, Project, STATUS_LABEL, beatName, beatNumber, groupBeats } from '../model';
 import { ColorBy, State, actions, setZoom, toggleZoomLink, ui } from '../store';
 import { COLOR_BY_LABEL, THROUGHLINE_COLOR, beatColor, tinted } from '../colors';
-import { storybeatTag } from '../dramatica';
+import { assignStorybeats, storybeatTag } from '../dramatica';
+import { STORYBEAT_MIME } from '../Inspector';
 import { Issue, brokenLinks } from '../evaluate';
 import { beatCharacters } from '../text';
 import { BeatEditor } from '../BeatEditor';
@@ -180,6 +181,7 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
   const errorBeats = new Set(issues.filter((i) => i.severity === 'error').flatMap((i) => i.beatIds));
   const selectedBeat = s.selected ? p.beats[s.selected] : null;
   const picked = new Set(s.multi.length ? s.multi : s.selected ? [s.selected] : []);
+  const sbByKey = useMemo(() => new Map((p.storyform?.beats ?? []).map((x) => [x.key, x])), [p.storyform?.beats]);
   const dragIds = dragId && s.multi.length > 1 && s.multi.includes(dragId) ? s.multi : dragId ? [dragId] : [];
 
   // Při vybraném beatu ztlumíme vše, co s ním není kauzálně spojené.
@@ -634,17 +636,44 @@ export const Board = memo(function Board({ s, issues, matches, noSplit }: { s: S
                       setDragId(id);
                     }}
                     onDragEnd={() => (setDragId(null), setDrop(null))}
+                    onDragOver={(e) => {
+                      // Storybeaty tažené ze zásobníku se pouštějí přímo na scénu.
+                      if (!e.dataTransfer.types.includes(STORYBEAT_MIME)) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.dataTransfer.dropEffect = 'link';
+                      e.currentTarget.classList.add('drop-target');
+                    }}
+                    onDragLeave={(e) => e.currentTarget.classList.remove('drop-target')}
+                    onDrop={(e) => {
+                      const raw = e.dataTransfer.getData(STORYBEAT_MIME);
+                      if (!raw) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.currentTarget.classList.remove('drop-target');
+                      actions.editScript((draft) => assignStorybeats(draft, id, JSON.parse(raw)));
+                      ui({ selected: id, multi: [] });
+                    }}
                     onClick={(e) => (e.stopPropagation(), clickBeat(id, e))}
                   >
                     <div className="card-title">
-                      {b.dramatica && (
-                        <span className="card-tl" style={{ background: THROUGHLINE_COLOR[b.dramatica.throughline] }} title="Storybeat z Dramatiky">
-                          {storybeatTag(b.dramatica)}
-                        </span>
-                      )}
-                      {b.source && <span className="card-tl plain">{b.source.kind === 'moment' ? 'Moment' : 'Driver'}</span>}
+                      {b.source?.kind === 'driver' && <span className="card-tl plain">Driver</span>}
                       {b.title || <em>Bez názvu</em>}
                     </div>
+                    {!mini && (b.storybeats?.length ?? 0) > 0 && (
+                      <div className="card-beats">
+                        {b.storybeats!.map((k) => {
+                          const sb = sbByKey.get(k);
+                          return (
+                            sb && (
+                              <span key={k} className="card-tl" style={{ background: THROUGHLINE_COLOR[sb.throughline] }} title={`${sb.fn}${sb.summary ? ' – ' + sb.summary : ''}`}>
+                                {storybeatTag(sb)}
+                              </span>
+                            )
+                          );
+                        })}
+                      </div>
+                    )}
                     <div className="card-syn">{b.synopsis}</div>
                     <div className="card-foot">
                       <span className="dots">

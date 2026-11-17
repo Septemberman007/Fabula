@@ -12,7 +12,7 @@ import { Reports } from './views/Reports';
 import { Backup, PANES_DEFAULT, Panes, loadBackups } from './local';
 import { Splitter } from './Splitter';
 import { loadNewVersion, useNewVersion } from './version';
-import { Bundle, STORY_LANES, bundleFromNcp, exportDramatica, exportSources, importDramatica, isNcp, mergeDramatica, storybeatsFromCsv, storybeatsFromJson } from './dramatica';
+import { Bundle, bundleFromNcp, csvStoryformId, exportDramatica, exportSources, importDramatica, isNcp, mergeDramatica, storybeatsFromCsv, storybeatsFromJson } from './dramatica';
 import { chooseFolder, listSaved, saveNow, setMinutes, turnOff, unlock, useSaveState } from './autosave';
 import { Inspector } from './Inspector';
 
@@ -329,18 +329,27 @@ export function App() {
     setTimeout(() => window.print(), 150);
   };
 
-  const only = (storybeats: Bundle['storybeats']): Bundle => ({ storybeats, moments: [], drivers: [], players: [], notes: [] });
-  const fromDramatica = (b: { dramatica?: unknown; source?: unknown }) => !!(b.dramatica || b.source);
-  /** Podklady z Dramatiky: do příběhu, který z ní už vznikl, se jen doplní; jinak z nich vznikne nový příběh. */
+  const only = (storybeats: Bundle['storybeats'], storyformId?: string): Bundle => ({ storybeats, moments: [], drivers: [], players: [], notes: [], storyformId });
+  /** Podklady z Dramatiky: do příběhu ze stejného storyformu se jen doplní; jinak z nich vznikne nový příběh. */
   const openDramatica = (bundle: Bundle, fileName: string) => {
     if (!bundle.storybeats.length && !bundle.moments.length)
       return alert('V souboru jsem nenašel žádné storybeaty. Potřebuju sloupce s throughline, úrovní (Signpost, Progression, Event) a pořadím.');
-    // Doplňuje se jen do příběhu v dnešním rozložení (dějové linie); starší import se nahradí novým.
-    if (Object.values(p.beats).some(fromDramatica) && p.lanes.some((l) => l.name === STORY_LANES[0].name)) {
-      let res = { added: 0, updated: 0 };
+    const sf = p.storyform;
+    // Starší importy měly storybeaty jako karty; ty se nahradí novým rozložením.
+    const legacy = Object.values(p.beats).some((b) => 'dramatica' in b);
+    const same = !!sf?.beats.length && !legacy && (!sf.id || !bundle.storyformId || sf.id === bundle.storyformId);
+    if (same) {
+      let res = { added: 0, updated: 0, conflicts: 0 };
       actions.editScript((draft) => void (res = mergeDramatica(draft, bundle)));
-      alert(`Z Dramatiky doplněno: ${res.added} nových beatů, ${res.updated} změněných. Text scénáře zůstal, jak byl; krok lze vrátit přes Zpět.`);
-    } else actions.loadProject(importDramatica(bundle, bundle.title ?? fileName.replace(/\.(csv|json)$/i, '').replace(/-ncp$/i, '')));
+      alert(
+        `Z Dramatiky doplněno: ${res.added} nových položek, ${res.updated} změněných storybeatů.` +
+          (res.conflicts ? ` U ${res.conflicts} storybeatů se text změnil tady i v Dramatice: zůstalo znění z Fabuly.` : '') +
+          ' Scény, jejich pořadí ani text scénáře se nezměnily; krok lze vrátit přes Zpět.',
+      );
+    } else {
+      if (sf?.beats.length && !legacy && !confirm('Soubor patří k jinému storyformu než otevřený příběh. Otevřít ho jako nový příběh? Současný se předtím zazálohuje.')) return;
+      actions.loadProject(importDramatica(bundle, bundle.title ?? fileName.replace(/\.(csv|json)$/i, '').replace(/-ncp$/i, '')));
+    }
     ui({ view: 'board' });
   };
 
@@ -352,7 +361,7 @@ export function App() {
     try {
       const text = await f.text();
       const ext = f.name.split('.').pop()?.toLowerCase();
-      if (ext === 'csv') return openDramatica(only(storybeatsFromCsv(text)), f.name);
+      if (ext === 'csv') return openDramatica(only(storybeatsFromCsv(text), csvStoryformId(text)), f.name);
       if (ext === 'fdx' || text.trimStart().startsWith('<')) return actions.loadProject(importFdx(text, f.name));
       if (ext === 'fountain' || ext === 'txt') return actions.loadProject(importFountain(text, f.name));
       const data = JSON.parse(text);
@@ -454,7 +463,7 @@ export function App() {
                 <button onClick={run(() => download(`${base} – osnova.txt`, exportOutline(p)))}>
                   Export osnovy (text)<small>beaty s příčinami slovy</small>
                 </button>
-                {Object.values(p.beats).some(fromDramatica) && (
+                {(p.storyform?.beats.length ?? 0) > 0 && (
                   <button onClick={run(() => download(`${base} – dramatica.json`, JSON.stringify({ storybeats: exportDramatica(p), scenes: exportSources(p) }, null, 2), 'application/json'))}>
                     Export pro Dramaticu (.json)<small>synopse, Storytelling a pořadí scén k zápisu zpět</small>
                   </button>

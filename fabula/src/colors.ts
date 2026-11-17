@@ -11,7 +11,10 @@ export const THROUGHLINE_COLOR = { OS: '#b45309', MC: '#1d4ed8', IC: '#be185d', 
 /** Barva beatu podle zvoleného režimu: linie, první přiřazený motiv, nebo stav rozpracovanosti. */
 export function beatColor(p: Project, b: Beat, mode: ColorBy): string {
   if (mode === 'status') return STATUS_COLOR[b.status];
-  if (mode === 'throughline') return b.dramatica ? THROUGHLINE_COLOR[b.dramatica.throughline] : NEUTRAL;
+  if (mode === 'throughline') {
+    const first = b.storybeats?.[0]?.split('/')[0] as keyof typeof THROUGHLINE_COLOR | undefined;
+    return (first && THROUGHLINE_COLOR[first]) ?? NEUTRAL;
+  }
   if (mode === 'tag') return p.tags.find((t) => b.tagIds.includes(t.id))?.color ?? NEUTRAL;
   return p.lanes.find((l) => l.id === b.laneId)?.color ?? NEUTRAL;
 }

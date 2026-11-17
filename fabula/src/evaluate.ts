@@ -1,5 +1,6 @@
 import { ID, PARA_LABEL, Project, beatName } from './model';
 import { SCENE_RE, beatCharacters, unknownSpeakers } from './text';
+import { orderBreaks, storybeatTag } from './dramatica';
 
 export type Severity = 'error' | 'warn' | 'tip';
 
@@ -28,6 +29,16 @@ export function evaluate(p: Project): Issue[] {
   const name = (id: ID) => beatName(p, id);
   const pos = new Map<ID, number>();
   p.order.forEach((id, i) => pos.set(id, i));
+
+  // Pořadí uvnitř throughline je jediné, které Dramatica předepisuje.
+  for (const x of orderBreaks(p)) {
+    issues.push({
+      key: `weave:${x.earlier.key}`,
+      severity: 'warn',
+      message: `Storybeat ${storybeatTag(x.earlier)} (${x.earlier.fn}) ve scéně „${name(x.second)}“ stojí až za ${storybeatTag(x.later)} ve scéně „${name(x.first)}“. Uvnitř throughline mají jít po sobě.`,
+      beatIds: [x.second, x.first],
+    });
+  }
 
   // Kruhové vazby: A způsobuje B a B (i nepřímo) způsobuje A.
   const out = new Map<ID, ID[]>();
