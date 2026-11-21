@@ -3,7 +3,8 @@ import { Beat, ID, PARA_LABEL, Para, ParaType, Project, Revision } from './model
 import { actions, getState, ui, useSel } from './store';
 import { tint } from './colors';
 import { SCENE_RE, TYPE_CYCLE, speaker, speakerCharacter } from './text';
-import { Caret, Pos, Seg, copyAcross, deleteAcross, deleteRange, detectScene, editField, insertText, paste, segText, splitPara } from './edit';
+import { Caret, Pos, Seg, copyAcross, copyParas, deleteAcross, deleteRange, detectScene, editField, insertParas, insertText, paste, retype, retypeAcross, segText, splitPara } from './edit';
+import { newPara } from './model';
 
 /**
  * Souvislá psací plocha scénáře. Jedna plocha může obsahovat jeden beat (panel u tabule) nebo celý
@@ -16,6 +17,11 @@ import { Caret, Pos, Seg, copyAcross, deleteAcross, deleteRange, detectScene, ed
 
 /** Kam má po překreslení skočit kurzor. */
 let pendingCaret: (Caret & { root: HTMLElement }) | null = null;
+
+/** Schránka mezi plochami Fabuly: odstavce i s typy, aby se nemusely znovu rozpoznávat z textu. */
+const CLIP_MIME = 'application/x-fabula-paras';
+/** Typy prvků v pořadí klávesových zkratek ⌥⌘1–6 (jako ve Final Draftu). */
+export const ELEMENT_KEYS: ParaType[] = ['scene', 'action', 'character', 'paren', 'dialogue', 'transition'];
 
 const TRANSITIONS = ['STŘIH NA:', 'PROLÍNAČKA:', 'ZATMÍVAČKA.', 'ROZTMÍVAČKA:'];
 const SCENE_STARTS = ['INT. ', 'EXT. ', 'INT./EXT. '];
@@ -239,6 +245,27 @@ export const BeatParas = memo(function BeatParas({ beat, sceneBase, marks, cur, 
   );
 });
 
+/** Lišta prvků scénáře: ukazuje typ odstavce s kurzorem a mění ho (i pro celý výběr). */
+export function ElementBar({ type, onSet }: { type: ParaType | undefined; onSet: (t: ParaType) => void }) {
+  return (
+    <span className="seg el-bar" title="Prvek scénáře pro odstavec s kurzorem nebo pro celý výběr">
+      {ELEMENT_KEYS.map((t, k) => (
+        <button
+          key={t}
+          className={type === t ? 'on' : ''}
+          disabled={!type}
+          tabIndex={-1}
+          title={`${PARA_LABEL[t]} (⌥⌘${k + 1})`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onSet(t)}
+        >
+          {PARA_LABEL[t]}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 // ---------- Ovládání plochy ----------
 
 interface Cur {
@@ -290,11 +317,49 @@ export function useSurface(root: RefObject<HTMLDivElement>, wrap: RefObject<HTML
   };
   const index = (s: Seg) => project().beats[s.beatId].paras.findIndex((x) => x.id === s.paraId);
   /** Vloží text na polohu kurzoru vrácenou předchozím krokem úpravy. */
-  const insertAt = (p: Project, c: Caret, text: string, multi: boolean): Caret => {
+  const insertAt = (p: Project, c: Caret, text: string, multi: boolean, paras?: Para[]): Caret => {
     if (c.kind !== 'para') return editField(p, c, c.off, c.off, text);
     const ps = p.beats[c.beatId].paras;
     const at = { i: ps.findIndex((x) => x.id === c.paraId), off: c.off };
-    return inBeat(c.beatId, (d) => (multi ? paste(d, at, text) : insertText(d, at, text)))(p);
+    return inBeat(c.beatId, (d) => (paras ? insertParas(d, at, paras) : multi ? paste(d, at, text) : insertText(d, at, text)))(p);
+  };
+
+  /** Vloží obsah schránky místo výběru: odstavce Fabuly s typy, jinak text rozpoznaný jako scénář. */
+  const pasteNow = (text: string, paras?: Para[]) => {
+    const sel = selection();
+    if (!sel) return;
+    const { a, b } = sel;
+    const fresh = paras?.map((q) => ({ ...newPara(q.type, q.text), ...(q.note ? { note: q.note } : null) }));
+    if (a.el !== b.el) {
+      const segs = between(a.el, b.el);
+      return run((p) => insertAt(p, deleteAcross(p, segs, a.off, b.off), text, true, fresh));
+    }
+    const sa = segOf(a.el);
+    if (sa.kind !== 'para') return run((p) => editField(p, sa, a.off, b.off, text));
+    const i = index(sa);
+    run(inBeat(sa.beatId, (d) => {
+      const at = deleteRange(d, { i, off: a.off }, { i, off: b.off });
+      return fresh ? insertParas(d, at, fresh) : paste(d, at, text);
+    }));
+  };
+
+  /** Změní typ odstavce s kurzorem, nebo všech odstavců ve výběru. */
+  const setTypeSel = (type: ParaType) => {
+    const sel = selection();
+    if (!sel) return;
+    if (sel.a.el === sel.b.el) {
+      const s = segOf(sel.a.el);
+      if (s.kind === 'para') setType({ beatId: s.beatId, paraId: s.paraId! }, type);
+      return;
+    }
+    const segs = between(sel.a.el, sel.b.el);
+    const first = segs.find((x) => x.kind === 'para');
+    if (!first) return;
+    run((p) => {
+      retypeAcross(p, segs, type);
+      return { ...first, off: 0 };
+    });
+    root.current?.focus();
   };
 
   const setType = (c: Cur, type: ParaType) => {
@@ -303,8 +368,13 @@ export function useSurface(root: RefObject<HTMLDivElement>, wrap: RefObject<HTML
     run(
       inBeat(c.beatId, (ps) => {
         const i = ps.findIndex((x) => x.id === c.paraId);
-        ps[i].type = type;
-        return { i, off: off ?? ps[i].text.length };
+        const old = ps[i].text;
+        retype(ps[i], type);
+        const now = ps[i].text;
+        if (off === null) return { i, off: now.length };
+        // Přidané závorky posunou kurzor o znak doprava, odebrané doleva.
+        const moved = now === old ? 0 : now.length > old.length ? 1 : -1;
+        return { i, off: Math.max(0, Math.min(now.length, off + moved)) };
       }),
     );
     root.current?.focus();
@@ -344,6 +414,32 @@ export function useSurface(root: RefObject<HTMLDivElement>, wrap: RefObject<HTML
     }
     if (next?.top !== box?.top || next?.height !== box?.height || next?.left !== box?.left) setBox(next);
   });
+
+  // Zpět a Znovu vrací data; kdyby v ploše zůstal text, který do ní vložil prohlížeč mimo úseky
+  // (nebo odstavce, které už v datech nejsou), plochu překreslíme načisto.
+  const history = useSel((s) => s.future.length);
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const p = project();
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let stray = false;
+    for (let n = walker.nextNode(); n && !stray; n = walker.nextNode()) {
+      const parent = n.parentElement;
+      if (n.textContent?.trim() && parent && !parent.closest('[data-seg]') && !parent.closest('[contenteditable="false"]')) stray = true;
+    }
+    if (!stray)
+      for (const x of el.querySelectorAll<HTMLElement>('[data-seg="para"]')) {
+        const b = p.beats[x.dataset.beat!];
+        const para = b?.paras.find((q) => q.id === x.dataset.para);
+        if (!para || readText(x) !== para.text) {
+          stray = true;
+          break;
+        }
+      }
+    if (stray) setEpoch((k) => k + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history]);
 
   // Vstup z klávesnice, schránky a diktování přichází jako „beforeinput“ s popisem záměru.
   useEffect(() => {
@@ -505,6 +601,12 @@ export function useSurface(root: RefObject<HTMLDivElement>, wrap: RefObject<HTML
   const sugg = cur && curPara && focused ? suggestions(project(), curPara) : [];
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // ⌥⌘1–6 (nebo Ctrl+1–6): typ prvku pro odstavec s kurzorem nebo celý výběr.
+    const digit = /^Digit([1-6])$/.exec(e.code);
+    if (e.target === root.current && digit && ((e.metaKey && e.altKey) || (e.ctrlKey && !e.metaKey && !e.altKey))) {
+      e.preventDefault();
+      return setTypeSel(ELEMENT_KEYS[+digit[1] - 1]);
+    }
     if (e.target !== root.current || e.key !== 'Tab') return;
     e.preventDefault();
     const sel = selection();
@@ -524,6 +626,26 @@ export function useSurface(root: RefObject<HTMLDivElement>, wrap: RefObject<HTML
     setType(c, TYPE_CYCLE[(k + (e.shiftKey ? TYPE_CYCLE.length - 1 : 1)) % TYPE_CYCLE.length]);
   };
 
+  /**
+   * Vkládání řídíme sami, ne prohlížečem: ten by vložil formátovaný text mimo úseky plochy
+   * a vše by skončilo v jednom odstavci (a nešlo by to vrátit).
+   */
+  const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
+    if (e.target instanceof HTMLTextAreaElement) return;
+    e.preventDefault();
+    let paras: Para[] | undefined;
+    try {
+      const raw = e.clipboardData.getData(CLIP_MIME);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(parsed) && parsed.every((q) => q && typeof q.text === 'string' && q.type in PARA_LABEL)) paras = parsed;
+    } catch {
+      paras = undefined;
+    }
+    const text = e.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
+    if (!paras && !text) return;
+    pasteNow(text, paras?.length ? paras : undefined);
+  };
+
   /** Výběr přes více úseků kopírujeme jako scénář (Fountain), aby se dal vložit zpět se zachováním typů. */
   const onClip = (e: ClipboardEvent<HTMLDivElement>, cut: boolean) => {
     if (e.target instanceof HTMLTextAreaElement) return;
@@ -532,13 +654,18 @@ export function useSurface(root: RefObject<HTMLDivElement>, wrap: RefObject<HTML
     e.preventDefault();
     const segs = between(sel.a.el, sel.b.el);
     e.clipboardData.setData('text/plain', copyAcross(project(), segs, sel.a.off, sel.b.off));
+    try {
+      e.clipboardData.setData(CLIP_MIME, JSON.stringify(copyParas(project(), segs, sel.a.off, sel.b.off)));
+    } catch {
+      // Prohlížeč vlastní typ schránky nepodporuje: zůstane text, který se rozpozná znovu.
+    }
     if (cut) run((p) => deleteAcross(p, segs, sel.a.off, sel.b.off));
   };
 
   const overlay: ReactNode = cur && curPara && box && (
     <>
       <div className="pe-tools" style={{ top: box.top, right: `calc(100% - ${box.gutter}px + 40px)` }}>
-        <select value={curPara.type} tabIndex={-1} title="Typ odstavce (Tab přepíná)" onChange={(e) => setType(cur, e.target.value as ParaType)}>
+        <select value={curPara.type} tabIndex={-1} title="Typ prvku (Tab přepíná, ⌥⌘1–6 nastaví)" onChange={(e) => setType(cur, e.target.value as ParaType)}>
           {(Object.keys(PARA_LABEL) as ParaType[]).map((t) => (
             <option key={t} value={t}>
               {PARA_LABEL[t]}
@@ -585,7 +712,11 @@ export function useSurface(root: RefObject<HTMLDivElement>, wrap: RefObject<HTML
       onKeyDown,
       onCopy: (e: ClipboardEvent<HTMLDivElement>) => onClip(e, false),
       onCut: (e: ClipboardEvent<HTMLDivElement>) => onClip(e, true),
+      onPaste,
     } as const,
+    /** Typ odstavce s kurzorem (pro lištu prvků) a jeho změna pro kurzor či výběr. */
+    curType: focused ? curPara?.type : undefined,
+    setTypeSel,
     /** Vlastnosti obalu: sledují, jestli má plocha fokus. */
     focus: {
       onFocus: () => setFocused(true),

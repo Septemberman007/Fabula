@@ -5,7 +5,7 @@ import { pointsOf, storybeatTag, storybeatsOf } from '../dramatica';
 import { THROUGHLINE_COLOR } from '../colors';
 import { ProdStyle, ProdTagButton, useProdHighlight } from '../ProdTag';
 import { State, actions, getState, ui } from '../store';
-import { BeatParas, SegText, useSurface } from '../Surface';
+import { BeatParas, ElementBar, SegText, useSurface } from '../Surface';
 import { ZoomSlider } from '../ZoomSlider';
 import { beatWords, hasText } from '../text';
 import { PAPERS, Pagination, pageRange, paginate, paperOf } from '../paginate';
@@ -230,6 +230,7 @@ export function Script({ s, matches, zoomable, onHide }: { s: State; matches: Se
             {reading ? 'Zastavit čtení' : 'Číst nahlas'}
           </button>
         )}
+        {!paged && <ElementBar type={sf.curType} onSet={sf.setTypeSel} />}
         {!paged && <ProdTagButton p={p} scope={root} />}
         {show.prod && <ProdStyle p={p} />}
         <details className="show-menu">

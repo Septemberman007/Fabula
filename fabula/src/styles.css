@@ -4038,3 +4038,25 @@ button.pressed {
   padding: 0;
   flex: none;
 }
+
+/* Lišta prvků scénáře (Scéna, Akce, Postava…) */
+.el-bar button {
+  padding: 2px 7px;
+}
+.el-bar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.el-bar button.on {
+  background: var(--accent, var(--band));
+  color: #fff;
+}
+.el-bar-row {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 0 6px;
+  background: var(--paper, var(--bg));
+}

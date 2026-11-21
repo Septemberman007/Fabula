@@ -1,6 +1,7 @@
 import type { ID, Para, Project } from './model';
 import { newPara } from './model';
-import { NEXT_TYPE, SCENE_RE, parseFountain, toFountain } from './text';
+import type { ParaType } from './model';
+import { NEXT_TYPE, SCENE_RE, parseLines, toFountain } from './text';
 
 /**
  * Úpravy textu beatu jako jednoho souvislého dokumentu: mazání výběru přes více odstavců,
@@ -64,16 +65,23 @@ export function splitPara(ps: Para[], at: Pos): Pos {
   return { i: at.i + 1, off: 0 };
 }
 
+/** Text ze schránky jako odstavce scénáře. Názvy a synopse beatů („# název“, „= synopse“) do textu nepatří. */
+export const clipParas = (text: string): Para[] => parseLines(text.split('\n').filter((l) => !/^(#+|=)\s/.test(l)).join('\n'));
+
 /**
  * Vloží text ze schránky. Jednořádkový se vloží do odstavce; víceřádkový se rozpozná
  * jako scénář (hlavičky, mluvčí, repliky) a vloží se jako samostatné odstavce.
  */
 export function paste(ps: Para[], at: Pos, text: string): Pos {
-  const clean = text.replace(/\r\n?/g, '\n');
+  const clean = text.replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '');
   if (!clean.includes('\n')) return insertText(ps, at, clean);
-  // Názvy a synopse beatů (zkopírované jako „# název“ a „= synopse“) do textu scénáře nepatří.
-  const items = parseFountain(clean.split('\n').filter((l) => !/^(#+|=)\s/.test(l)).join('\n'));
+  return insertParas(ps, at, clipParas(clean));
+}
+
+/** Vloží hotové odstavce (například zkopírované z Fabuly) na polohu kurzoru. */
+export function insertParas(ps: Para[], at: Pos, items: Para[]): Pos {
   if (!items.length) return at;
+  if (items.length === 1 && items[0].type === 'action' && !items[0].text.includes('\n')) return insertText(ps, at, items[0].text);
   const p = ps[at.i];
   const head = p.text.slice(0, at.off);
   const tail = p.text.slice(at.off);
@@ -87,12 +95,24 @@ export function paste(ps: Para[], at: Pos, text: string): Pos {
     const [first, ...rest] = items;
     p.type = first.type;
     p.text = first.text;
+    if (first.note && !p.note) p.note = first.note;
     ps.splice(i + 1, 0, ...rest);
     i += rest.length;
   }
   const end = { i, off: ps[i].text.length };
   if (tail.trim()) ps.splice(i + 1, 0, newPara(p.type === 'scene' ? 'action' : head.trim() ? p.type : 'action', tail));
   return end;
+}
+
+/**
+ * Změní typ odstavce. Poznámka (parenteze) dostane závorky, a když přestane být poznámkou, závorky ztratí.
+ */
+export function retype(p: Para, type: ParaType) {
+  if (p.type === type) return;
+  const t = p.text.trim();
+  if (type === 'paren' && t && !t.startsWith('(')) p.text = `(${t})`;
+  else if (p.type === 'paren' && /^\(.*\)$/s.test(t)) p.text = t.slice(1, -1).trim();
+  p.type = type;
 }
 
 /** Vybraný úsek jako samostatné odstavce (pro kopírování). */
@@ -184,4 +204,26 @@ export function copyAcross(p: Project, segs: Seg[], from: number, to: number): s
   });
   flush();
   return out.join('\n\n');
+}
+
+/** Odstavce výběru přes více úseků (bez názvů a synopsí), pro kopírování se zachováním typů. */
+export function copyParas(p: Project, segs: Seg[], from: number, to: number): Para[] {
+  const out: Para[] = [];
+  segs.forEach((seg, k) => {
+    if (seg.kind !== 'para') return;
+    const para = p.beats[seg.beatId].paras.find((x) => x.id === seg.paraId);
+    if (!para) return;
+    const text = para.text.slice(k === 0 ? from : 0, k === segs.length - 1 ? to : undefined);
+    if (text.trim()) out.push({ ...para, text });
+  });
+  return out;
+}
+
+/** Změní typ všech odstavců v úsecích výběru. */
+export function retypeAcross(p: Project, segs: Seg[], type: ParaType) {
+  for (const seg of segs) {
+    if (seg.kind !== 'para') continue;
+    const para = p.beats[seg.beatId].paras.find((x) => x.id === seg.paraId);
+    if (para) retype(para, type);
+  }
 }

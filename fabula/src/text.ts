@@ -58,6 +58,54 @@ export function parseFountain(text: string): Para[] {
   return out;
 }
 
+/**
+ * Rozpozná vložený text scénáře po řádcích. Zvládne zápis Fountain (bloky oddělené prázdným řádkem)
+ * i text zkopírovaný z jiných programů nebo PDF, kde jsou prvky jen pod sebou bez prázdných řádků.
+ */
+export function parseLines(text: string): Para[] {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  // S prázdnými řádky mezi bloky platí zvyklosti Fountain: řádek pod replikou ji ještě pokračuje.
+  const spaced = /\n[ \t]*\n/.test(text.trim());
+  const out: Para[] = [];
+  const indentOf = (l: string) => (l.match(/^[ \t]*/)?.[0] ?? '').replace(/\t/g, '    ').length;
+  let prev: Para | null = null;
+  let dialogueIndent = -1;
+  lines.forEach((raw, k) => {
+    const t = raw.trim();
+    if (!t) {
+      prev = null;
+      return;
+    }
+    const indent = indentOf(raw);
+    const nextLine = lines[k + 1]?.trim() ?? '';
+    const isUpper = /\p{L}/u.test(t) && t === up(t);
+    const push = (type: ParaType, x: string) => {
+      const q: Para = { id: id(), type, text: UPPER[type] ? up(x.trim()) : x.trim() };
+      out.push(q);
+      prev = q;
+      if (type === 'dialogue') dialogueIndent = indent;
+    };
+    const last = prev as Para | null;
+    if (/^\.[^.]/.test(t) || SCENE_RE.test(t)) return push('scene', t.replace(/^\./, ''));
+    if (t.startsWith('>') && !t.endsWith('<')) return push('transition', t.replace(/^>\s*/, ''));
+    if (isUpper && TRANSITION_RE.test(t)) return push('transition', t);
+    if (last && /^\(.*\)$/.test(t) && ['character', 'dialogue', 'paren'].includes(last.type)) return push('paren', t);
+    if (last && (last.type === 'character' || last.type === 'paren')) return push('dialogue', t);
+    if (last?.type === 'dialogue' && (spaced || (indent > 0 && indent === dialogueIndent))) {
+      last.text += ' ' + t;
+      return;
+    }
+    if (t.startsWith('@') || (isUpper && nextLine && t.length <= 50 && !/[.!?:;,]$/.test(t))) return push('character', t.replace(/^@/, ''));
+    // Akce: ve Fountain jsou řádky jednoho bloku jedním odstavcem (s ručními konci řádků).
+    if (spaced && last?.type === 'action') {
+      last.text += '\n' + t;
+      return;
+    }
+    push('action', t);
+  });
+  return out;
+}
+
 /** Zapíše odstavce jako text ve formátu Fountain. */
 export function toFountain(paras: Para[]): string {
   let s = '';
