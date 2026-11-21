@@ -1,6 +1,7 @@
 import type { Beat, Break, CharRole, ID, Para, ParaType, Project } from './model';
 import { derivedTension } from './tension';
 import { parseFountain, toFountain, titleCase, speaker } from './text';
+import { fdxTagWriter, importFdxTags, taggedRuns, type TaggedRun } from './fdxTags';
 
 const id = () => crypto.randomUUID();
 const COLORS = ['#c2410c', '#0f766e', '#6d28d9', '#b45309', '#1d4ed8', '#be185d', '#4d7c0f', '#475569'];
@@ -494,8 +495,12 @@ const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 /** Scénář jako dokument Final Draft (.fdx). Název a synopse beatu se uloží do vlastností scény. */
 export function exportFdx(p: Project): string {
   const out: string[] = [];
-  const para = (type: string, text: string, attrs = '', inner = '') =>
-    out.push(`    <Paragraph${attrs} Type="${type}">\n${inner}      <Text>${xml(text)}</Text>\n    </Paragraph>`);
+  const tags = fdxTagWriter(p);
+  const para = (type: string, text: string, attrs = '', inner = '', src?: Para) => {
+    const runs = src ? tags.runs(src, text, type === 'Scene Heading') : [{ text }];
+    const body = runs.map((r) => `      <Text${r.tag ? ` TagNumber="${r.tag}"` : ''}>${xml(r.text)}</Text>\n`).join('');
+    out.push(`    <Paragraph${attrs} Type="${type}">\n${inner}${body}    </Paragraph>`);
+  };
   let scene = 0;
   for (const x of p.order) {
     if (p.breaks[x]) {
@@ -514,10 +519,10 @@ export function exportFdx(p: Project): string {
         const props = first
           ? `      <SceneProperties Title="${xml(b.title)}">\n        <Summary>\n          <Paragraph>\n            <Text>${xml(b.synopsis)}</Text>\n          </Paragraph>\n        </Summary>\n      </SceneProperties>\n`
           : '';
-        para('Scene Heading', text, ` Number="${++scene}"`, props);
+        para('Scene Heading', text, ` Number="${++scene}"`, props, q);
         first = false;
       } else {
-        for (const line of q.type === 'action' ? text.split('\n') : [text]) if (line.trim()) para(FDX_TYPE[q.type], line.trim());
+        for (const line of q.type === 'action' ? text.split('\n') : [text]) if (line.trim()) para(FDX_TYPE[q.type], line.trim(), '', '', q);
       }
     }
   }
@@ -536,7 +541,7 @@ ${out.join('\n')}
         .join('')}
     </Content>
   </TitlePage>
-</FinalDraft>
+${tags.xml()}</FinalDraft>
 `;
 }
 
@@ -553,6 +558,7 @@ export function importFdx(text: string, fileName: string): Project {
 
   const paras: Para[] = [];
   const meta = new Map<ID, { title?: string; synopsis?: string; isBreak?: boolean }>();
+  const runs = new Map<ID, TaggedRun[]>();
   for (const el of kids(content, 'Paragraph')) {
     const t = ownText(el).trim();
     if (!t) continue;
@@ -570,6 +576,8 @@ export function importFdx(text: string, fileName: string): Project {
               : 'action';
     const q: Para = { id: id(), type, text: t };
     paras.push(q);
+    const tagged = taggedRuns(el);
+    if (tagged.length) runs.set(q.id, tagged);
     // Předěly: prvky „New Act“ / „End of Act“ a vycentrovaný obecný odstavec (tak je zapisuje náš export).
     if (/\bact\b/.test(kind) || (kind === 'general' && el.getAttribute('Alignment') === 'Center')) meta.set(q.id, { isBreak: true });
     const props = kids(el, 'SceneProperties')[0];
@@ -580,6 +588,7 @@ export function importFdx(text: string, fileName: string): Project {
   }
   parasToBeats(p, paras, meta);
   addSpeakers(p);
+  importFdxTags(p, root, runs);
   const title = root.querySelector('TitlePage Text')?.textContent?.trim();
   if (title) p.title = titleCase(title);
   return p;
