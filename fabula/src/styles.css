@@ -3854,3 +3854,187 @@ button.pressed {
   width: 100%;
   font-size: 12px;
 }
+
+/* ---------- Produkční prvky: označení ve scénáři ---------- */
+.prod-tag-wrap {
+  position: relative;
+}
+.prod-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: 300px;
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(var(--shadow) / 0.18);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+.prod-pop small {
+  color: var(--muted);
+}
+.prod-pop-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.prod-pop-cats button,
+.prod-pop-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.prod-pop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.prod-pop-list button {
+  justify-content: flex-start;
+}
+.prod-pop i,
+.prod-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+@media (max-width: 700px) {
+  .prod-pop {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    top: 110px;
+    width: auto;
+  }
+}
+
+/* ---------- Produkční rozpis ---------- */
+.prod-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.prod-bar .muted {
+  flex: 1;
+}
+.prod-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.prod-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 100%;
+}
+.prod-table th {
+  position: sticky;
+  top: 0;
+  background: var(--band);
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 3px solid var(--line);
+  white-space: nowrap;
+}
+.prod-table td {
+  padding: 4px 8px;
+  border-top: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+.prod-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.prod-heading {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  min-width: 220px;
+}
+.prod-chip {
+  display: inline-block;
+  margin: 1px 3px 1px 0;
+  padding: 0 6px;
+  border: 1px solid;
+  border-left-width: 3px;
+  border-radius: 3px;
+  background: none;
+  font-size: 11.5px;
+  line-height: 17px;
+}
+.prod-chip.manual {
+  border-style: dashed;
+}
+.prod-chip:hover {
+  text-decoration: line-through;
+}
+.prod-add {
+  width: 26px;
+  padding: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.prod-cats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin: 8px 0 12px;
+}
+.prod-cat {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+}
+.prod-cat-head,
+.prod-el {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.prod-cat-head input:not([type='color']) {
+  flex: 1;
+  font-weight: 600;
+}
+.prod-el input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+.prod-el small {
+  color: var(--muted);
+  min-width: 24px;
+  text-align: right;
+}
+.prod-empty {
+  max-width: 560px;
+}
+@media print {
+  .prod-bar,
+  .prod-add,
+  .prod-cats,
+  .prod + h3 {
+    display: none !important;
+  }
+  .prod-scroll {
+    overflow: visible;
+    border: 0;
+  }
+}
+.prod-cat-head input[type='color'] {
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  flex: none;
+}

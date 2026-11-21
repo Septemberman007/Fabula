@@ -33,6 +33,8 @@ const NIGHT = /\b(NOC|NIGHT|VEČER|EVENING|SOUMRAK|DUSK)\b/;
 export const dayPart = (time: string) => (NIGHT.test(time) ? 'Noc' : DAY.test(time) ? 'Den' : time ? 'Jiné' : 'Neuvedeno');
 
 export interface Scene {
+  /** Id odstavce s hlavičkou: podle něj se scéna pozná i po přečíslování. */
+  id: ID;
   n: number;
   heading: string;
   parsed: Heading;
@@ -48,6 +50,8 @@ export interface Scene {
   cast: Set<ID>;
   tags: Set<ID>;
   tension: number;
+  /** Odstavce scény (od hlavičky po další hlavičku). */
+  paras: Para[];
 }
 
 /**
@@ -68,7 +72,7 @@ export function scenes(p: Project): Scene[] {
     for (const para of b.paras) {
       if (!para.text.trim()) continue;
       if (para.type === 'scene') {
-        cur = { n: out.length + 1, heading: up(para.text.trim()), parsed: parseHeading(para.text), beats: [], page: 0, lines: 0, words: 0, speakers: new Map(), cast: new Set(), tags: new Set(), tension: 0 };
+        cur = { id: para.id, paras: [], n: out.length + 1, heading: up(para.text.trim()), parsed: parseHeading(para.text), beats: [], page: 0, lines: 0, words: 0, speakers: new Map(), cast: new Set(), tags: new Set(), tension: 0 };
         out.push(cur);
         paras.set(cur, []);
       }
@@ -80,6 +84,7 @@ export function scenes(p: Project): Scene[] {
   const pg = paginate(p);
   for (const sc of out) {
     const ps = paras.get(sc)!;
+    sc.paras = ps;
     sc.page = pg.para.get(ps[0].id)?.page ?? 0;
     sc.lines = ps.reduce((n, x) => n + (pg.para.get(x.id)?.lines ?? 0), 0);
     sc.words = ps.reduce((n, x) => n + words(x.text), 0);

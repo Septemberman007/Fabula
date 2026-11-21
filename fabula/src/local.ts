@@ -119,9 +119,11 @@ export interface ScriptShow {
   pages: boolean;
   /** Storybeaty a storypointy scény z Dramatiky. */
   dramatica: boolean;
+  /** Produkční prvky zvýrazněné barvou kategorie. */
+  prod: boolean;
 }
-export const SCRIPT_SHOW_ALL: ScriptShow = { titles: true, synopsis: true, tags: true, breaks: true, pages: true, dramatica: true };
-export const SCRIPT_SHOW_NONE: ScriptShow = { titles: false, synopsis: false, tags: false, breaks: false, pages: false, dramatica: false };
+export const SCRIPT_SHOW_ALL: ScriptShow = { titles: true, synopsis: true, tags: true, breaks: true, pages: true, dramatica: true, prod: true };
+export const SCRIPT_SHOW_NONE: ScriptShow = { titles: false, synopsis: false, tags: false, breaks: false, pages: false, dramatica: false, prod: false };
 const SCRIPT_SHOW_KEY = 'fabula.scriptShow';
 export const loadScriptShow = (): ScriptShow => ({ ...SCRIPT_SHOW_ALL, ...read<Partial<ScriptShow>>(SCRIPT_SHOW_KEY, {}) });
 export const saveScriptShow = (show: ScriptShow) => write(SCRIPT_SHOW_KEY, show);

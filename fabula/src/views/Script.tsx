@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import { Beat, ID, Project, Tag } from '../model';
 import { pointsOf, storybeatTag, storybeatsOf } from '../dramatica';
 import { THROUGHLINE_COLOR } from '../colors';
+import { ProdStyle, ProdTagButton, useProdHighlight } from '../ProdTag';
 import { State, actions, getState, ui } from '../store';
 import { BeatParas, SegText, useSurface } from '../Surface';
 import { ZoomSlider } from '../ZoomSlider';
@@ -160,6 +161,7 @@ export function Script({ s, matches, zoomable, onHide }: { s: State; matches: Se
   const root = useRef<HTMLDivElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const sf = useSurface(root, wrap, true);
+  useProdHighlight(root, p, show.prod && !paged, sf.epoch);
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
@@ -228,6 +230,8 @@ export function Script({ s, matches, zoomable, onHide }: { s: State; matches: Se
             {reading ? 'Zastavit čtení' : 'Číst nahlas'}
           </button>
         )}
+        {!paged && <ProdTagButton p={p} scope={root} />}
+        {show.prod && <ProdStyle p={p} />}
         <details className="show-menu">
           <summary title="Co se kromě textu scénáře zobrazuje">{Object.values(show).some(Boolean) ? 'Zobrazit' : 'Čistý scénář'}</summary>
           <div>
@@ -238,6 +242,7 @@ export function Script({ s, matches, zoomable, onHide }: { s: State; matches: Se
                 ['tags', 'Motivy'],
                 ['breaks', 'Předěly'],
                 ['dramatica', 'Storybeaty a storypointy'],
+                ['prod', 'Produkční prvky'],
                 ['pages', 'Čísla a zlomy stran'],
               ] as const
             ).map(([k, label]) => (

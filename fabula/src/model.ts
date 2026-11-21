@@ -276,11 +276,37 @@ export interface Project {
   /** Formát papíru pro stránkování a tisk. */
   paper: Paper;
   storyform?: Storyform;
+  /** Produkční prvky (rekvizity, kostýmy, komparz…) pro rozpis scén. */
+  production?: Production;
   /** Zapnutá pravítka struktur vyprávění (viz structures.ts). */
   structures?: string[];
 }
 
 export type Paper = 'a4' | 'letter';
+
+/** Kategorie produkčních prvků, např. Rekvizity. */
+export interface ProdCategory {
+  id: ID;
+  name: string;
+  color: string;
+}
+/** Produkční prvek: věc, osoba nebo úkon, který scéna potřebuje. */
+export interface ProdElement {
+  id: ID;
+  categoryId: ID;
+  name: string;
+  /** Další tvary, podle kterých se prvek pozná v textu (čárkami; „pistol*“ = cokoli, co tak začíná). */
+  aliases: string;
+  note: string;
+  /** Scény (id odstavce s hlavičkou), kam autor prvek přidal ručně. */
+  scenes: ID[];
+  /** Scény, kde se prvek v textu najde, ale autor ho tam nechce. */
+  skip: ID[];
+}
+export interface Production {
+  categories: ProdCategory[];
+  elements: ProdElement[];
+}
 
 export const uid = (): ID => crypto.randomUUID();
 

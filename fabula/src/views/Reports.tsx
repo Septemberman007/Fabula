@@ -6,8 +6,16 @@ import { download } from '../io';
 import { PAPERS, eighths as eighthsOf, pageRange, paginate } from '../paginate';
 import { cast, locations, scenes, toCsv, totalWords, totals } from '../stats';
 import { loadProductivity, saveGoal, streak, today } from '../local';
+import { Production } from './Production';
 
-type Tab = 'stats' | 'map' | 'scenes' | 'locations' | 'cast' | 'tags' | 'notes' | 'revisions' | 'writing' | 'title';
+type Tab = 'stats' | 'map' | 'scenes' | 'locations' | 'cast' | 'tags' | 'production' | 'notes' | 'revisions' | 'writing' | 'title';
+
+/** Záložka, se kterou se Reporty otevřou příště (např. z tlačítka ve scénáři). */
+let nextTab: Tab | null = null;
+export function openReport(tab: Tab) {
+  nextTab = tab;
+  ui({ view: 'reports' });
+}
 const TABS: [Tab, string][] = [
   ['stats', 'Statistiky'],
   ['map', 'Mapa příběhu'],
@@ -15,6 +23,7 @@ const TABS: [Tab, string][] = [
   ['locations', 'Lokace'],
   ['cast', 'Postavy'],
   ['tags', 'Motivy'],
+  ['production', 'Produkční rozpis'],
   ['notes', 'Poznámky'],
   ['revisions', 'Revize'],
   ['writing', 'Psaní'],
@@ -388,7 +397,10 @@ function TitlePageForm({ p }: { p: Project }) {
 
 export function Reports({ s }: { s: State }) {
   const p = s.project;
-  const [tab, setTab] = useState<Tab>('stats');
+  const [tab, setTab] = useState<Tab>(() => nextTab ?? 'stats');
+  // Požadavek na záložku platí jen pro toto otevření (vymaže se až po vykreslení, ne v inicializaci,
+  // kterou React ve vývoji volá dvakrát).
+  useEffect(() => void (nextTab = null), []);
   const sc = useMemo(() => scenes(p), [p]);
   const t = useMemo(() => totals(p, sc), [p, sc]);
   const pg = paginate(p);
@@ -536,6 +548,7 @@ export function Reports({ s }: { s: State }) {
         )}
 
         {tab === 'map' && <StoryMap s={s} />}
+        {tab === 'production' && <Production p={p} />}
 
         {tab === 'notes' && (
           <Table
